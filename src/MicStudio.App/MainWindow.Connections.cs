@@ -50,9 +50,15 @@ public partial class MainWindow
                 driverStatusText.Text = result.Success ? "官方安装器已打开；安装完成后刷新，必要时重启。" : result.Message;
             })),
             Buttons(B("VB-CABLE · VB-Audio · Donationware", () => Open(DriverManager.AttributionUrl)), B("支持驱动作者", () => Open(DriverManager.DonationUrl)))));
-        Add(Card("用作其他软件的输入", "适用于录音、会议、直播、通话等支持选择输入设备的软件。", DevicePicker(send, State.CableOutputId, id => { if (engine.IsRunning) StopAudio(); State.CableOutputId = id; InvalidateDiscord(); SaveSoon(); }),
-            T("输入设备选择：CABLE Output", 16, Accent, FontWeights.SemiBold),
-            Buttons(B("开始处理并发送", () => { if (!LocalMode) { ModePicker.SelectedIndex = 1; } StartAudio(true); }, true), B("停止", StopAudio), B("复制输入名称", () => Clipboard.SetText(receive.FirstOrDefault()?.Name ?? "CABLE Output")))));
+        var route = SelectCableRoute();
+        var routeControls = new StackPanel();
+        routeControls.Children.Add(T(route.IsReady ? "虚拟线路：自动连接就绪" : route.Message, 14, route.IsReady ? Accent : Amber));
+        if (route.IsReady) routeControls.Children.Add(T("其他软件的输入选：" + route.Receive!.Name, 14, Accent));
+        var completeSends = send.Where(d => CableRouteResolver.Resolve(inputs, outputs, d.Id).Send?.Id == d.Id).ToList();
+        if (completeSends.Count > 1)
+            routeControls.Children.Add(new Expander { Header = "更换虚拟线路", Foreground = Ink, Content = DevicePicker(completeSends, State.CableOutputId, id => { if (engine.IsRunning) StopAudio(); State.CableOutputId = id; InvalidateDiscord(); SaveSoon(); ShowPage(4); }), Margin = new(0, 0, 0, 12) });
+        routeControls.Children.Add(Buttons(B("开始处理并发送", () => { if (!LocalMode) { ModePicker.SelectedIndex = 1; } StartAudio(true); }, true), B("停止", StopAudio), B("复制输入名称", () => { if (route.Receive != null) Clipboard.SetText(route.Receive.Name); else Notice("虚拟线路尚未就绪。"); })));
+        Add(Card("用作其他软件的输入", "自动选择匹配的 CABLE 收发端；不会修改其他软件或 Windows 默认输入。", routeControls));
         var physical = outputs.Where(d => d.IsActive && !AudioDeviceService.IsVirtualCableEndpoint(d.Name)).ToList();
         Add(Card("耳机监听", "仅选择并佩戴物理耳机后开启，监听额外衰减 12 dB；更改监听设置会停止当前音频。", DevicePicker(physical, State.PlaybackOutputId, id => { State.PlaybackOutputId = id; monitorId = id; if (engine.IsRunning) StopAudio(); SaveSoon(); }),
             Toggle("已佩戴耳机", headphones, v => { headphones = v; if (!v) { monitor = false; if (engine.IsRunning) StopAudio(); } }),

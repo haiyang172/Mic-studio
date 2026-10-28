@@ -29,7 +29,8 @@ public partial class MainWindow
         AdaptiveCards(Card("输入", "系统音量和静音会立即作用于所选麦克风，包括其他应用。", volume), Card("电平", "开始后显示真实峰值；采集输入可能包含 Windows 系统效果。", MeterBlock(false), LocalMode ? MeterBlock(true) : T("APO 音频生效待验证", 12, Amber)));
         var quick = new WrapPanel();
         foreach (var button in new[] { B("均衡器", () => ShowPage(1)), B("效果", () => ShowPage(2)), B("另存预设", SavePreset), B("连接", () => ShowPage(4)) }) quick.Children.Add(button);
-        var tone = Card("音色", null, BuildPresetSelector(false), quick, T(LocalMode ? "其他软件的输入选：CABLE Output" : "系统 APO 需在设备页更新配置", 13, Accent));
+        var route = CableRouteResolver.Resolve(inputs, outputs, State.CableOutputId);
+        var tone = Card("音色", null, BuildPresetSelector(false), quick, T(LocalMode ? route.IsReady ? "其他软件的输入选：" + route.Receive!.Name : "虚拟线路未就绪，可在设备页检查驱动" : "系统 APO 需在设备页更新配置", 13, route.IsReady || !LocalMode ? Accent : Amber));
         Add(tone);
         Add(new Expander { Header = "增益校准", Foreground = Ink, Content = CalibrationControls(), Margin = new(0, 4, 0, 6) });
         Add(new Expander { Header = "录音与比较", Foreground = Ink, Content = RecordingControls(), Margin = new(0, 6, 0, 6) });
