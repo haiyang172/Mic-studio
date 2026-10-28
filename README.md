@@ -1,6 +1,10 @@
+<img src="assets/branding/mic-studio.png" alt="Mic Studio MS 图标" width="72" height="72">
+
 # Mic Studio
 
 Windows 原生麦克风调节软件，使用 C# / WPF / .NET 10。面向可选择输入设备的录音、会议、直播、通话软件。界面以设备、系统音量、数字增益和真实电平为主；高级参数按需展开。
+
+[下载发行版](https://github.com/haiyang172/Mic-studio/releases) · [MS 图标源文件](assets/branding/)
 
 ## 使用
 

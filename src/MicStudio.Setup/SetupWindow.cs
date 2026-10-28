@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace MicStudio.Setup;
 
@@ -20,6 +21,7 @@ public sealed class SetupWindow : Window
     {
         this.uninstall = uninstall;
         Title = uninstall ? "Mic Studio · 卸载" : "Mic Studio · 安装";
+        Icon = BitmapFrame.Create(new Uri("pack://application:,,,/MicStudio.Setup;component/Assets/mic-studio.ico"));
         Width = 680; Height = 610; MinWidth = 460; MinHeight = 420;
         MaxHeight = SystemParameters.WorkArea.Height; MaxWidth = SystemParameters.WorkArea.Width;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -28,9 +30,14 @@ public sealed class SetupWindow : Window
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         var content = new StackPanel();
-        content.Children.Add(new TextBlock { Text = "●  MIC STUDIO", Foreground = Brush("#71D6BF"), FontSize = 15, FontWeight = FontWeights.SemiBold });
+        var brand = new StackPanel { Orientation = Orientation.Horizontal };
+        var brandImage = new Image { Source = BitmapFrame.Create(new Uri("pack://application:,,,/MicStudio.Setup;component/Assets/mic-studio.png")), Width = 32, Height = 32, Stretch = Stretch.Uniform };
+        RenderOptions.SetBitmapScalingMode(brandImage, BitmapScalingMode.HighQuality);
+        brand.Children.Add(brandImage);
+        brand.Children.Add(new TextBlock { Text = "Mic Studio", Foreground = Brush("#71D6BF"), FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+        content.Children.Add(brand);
         content.Children.Add(new TextBlock { Text = uninstall ? "卸载 Mic Studio" : "让每一句话，更清楚。", FontSize = 30, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 28, 0, 10), TextWrapping = TextWrapping.Wrap });
-        content.Children.Add(new TextBlock { Text = uninstall ? "移除清单内未改动的程序文件及本安装器创建的快捷方式；保留额外或已修改的文件。" : "Windows 原生麦克风工作台 · 0.1.0 预览版\n增益、八段 EQ、人声效果与本地预设。", Foreground = Brush("#A4B4B5"), TextWrapping = TextWrapping.Wrap, LineHeight = 25 });
+        content.Children.Add(new TextBlock { Text = uninstall ? "移除清单内未改动的程序文件及本安装器创建的快捷方式；保留额外或已修改的文件。" : $"Windows 原生麦克风工作台 · {InstallerEngine.ProductVersion} 预览版\n增益、八段 EQ、人声效果与本地预设。", Foreground = Brush("#A4B4B5"), TextWrapping = TextWrapping.Wrap, LineHeight = 25 });
         var card = new Border { Background = Brush("#1B2327"), CornerRadius = new CornerRadius(10), Padding = new Thickness(18), Margin = new Thickness(0, 24, 0, 18) };
         var details = new StackPanel();
         details.Children.Add(new TextBlock { Text = uninstall ? "卸载位置" : "安装位置 · 仅当前用户", FontWeight = FontWeights.SemiBold });

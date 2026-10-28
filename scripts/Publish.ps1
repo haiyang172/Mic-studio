@@ -46,6 +46,11 @@ try {
         $source = Join-Path $workspace $document
         if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination $published }
     }
+    $brandingOutput = Join-Path $published 'assets\branding'
+    New-Item -ItemType Directory -Path $brandingOutput -Force | Out-Null
+    foreach ($asset in @('mic-studio.svg', 'mic-studio.png', 'mic-studio.ico')) {
+        Copy-Item -LiteralPath (Join-Path $workspace ('assets\branding\' + $asset)) -Destination $brandingOutput
+    }
     $validation = Join-Path $workspace 'docs\validation\test-plan.md'
     if (Test-Path -LiteralPath $validation) { Copy-Item -LiteralPath $validation -Destination (Join-Path $published 'VALIDATION.md') }
     $installerDoc = Join-Path $workspace 'docs\architecture\installer.md'

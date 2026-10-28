@@ -40,8 +40,10 @@ public partial class MainWindow : Window
     private WrapPanel? effectCards;
     private TextBlock? presetBadge;
     private System.Windows.Forms.NotifyIcon? tray;
+    private System.Drawing.Icon? trayIcon;
     private bool forceClose;
     private string applyState = "未应用";
+    private static string ProductVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.1.1";
 
     private Brush Ink => (Brush)FindResource("Ink");
     private Brush Muted => (Brush)FindResource("Muted");
@@ -116,7 +118,7 @@ public partial class MainWindow : Window
             closed = true; saveTimer.Stop(); calibrationTimer.Stop();
             lifetime.Cancel();
             try { vm.Save(); } catch { }
-            engine.Dispose(); devices.Dispose(); tray?.Dispose(); driverManager.Dispose();
+            engine.Dispose(); devices.Dispose(); tray?.ContextMenuStrip?.Dispose(); tray?.Dispose(); trayIcon?.Dispose(); driverManager.Dispose();
         };
         ApplyTheme(); ShowPage(0); UpdateCompact();
         if (vm.RecoveryWarning is not null) Notice(vm.RecoveryWarning);
@@ -128,10 +130,13 @@ public partial class MainWindow : Window
     {
         var compact = ActualWidth < 1000;
         NavColumn.Width = new(compact ? 66 : 190);
-        Brand.Text = compact ? "M" : "Mic Studio";
-        Brand.FontSize = compact ? 26 : 25;
+        Brand.Text = "Mic Studio";
+        Brand.FontSize = 20;
+        BrandText.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        BrandHeader.Margin = compact ? new(17, 24, 17, 24) : new(18, 24, 14, 24);
         BrandCaption.Visibility = SideCaption.Visibility = Visibility.Collapsed;
-        SideVersion.Text = "0.1";
+        SideVersion.Text = ProductVersion;
+        SideVersion.FontSize = compact ? 9 : 11;
         foreach (WpfButton button in Navigation.Children)
             if (button.Content is StackPanel panel && panel.Children.Count > 1) panel.Children[1].Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
         InputPicker.Width = ActualWidth < 700 ? 245 : 310;
@@ -342,7 +347,12 @@ public partial class MainWindow : Window
     private void EnsureTray()
     {
         if (tray != null) return;
-        tray = new() { Text = "Mic Studio · 本地音频状态见主窗口", Icon = System.Drawing.SystemIcons.Application, Visible = true };
+        var resource = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/MicStudio;component/Assets/mic-studio.ico"))
+            ?? throw new InvalidOperationException("缺少 Mic Studio 图标资源。");
+        using (var stream = resource.Stream)
+        using (var source = new System.Drawing.Icon(stream, 32, 32))
+            trayIcon = (System.Drawing.Icon)source.Clone();
+        tray = new() { Text = "Mic Studio · 本地音频状态见主窗口", Icon = trayIcon, Visible = true };
         var menu = new System.Windows.Forms.ContextMenuStrip(); menu.Items.Add("打开 Mic Studio", null, (_, _) => Dispatcher.Invoke(() => { Show(); WindowState = WindowState.Normal; Activate(); }));
         menu.Items.Add("停止所有本地音频", null, (_, _) => Dispatcher.Invoke(StopAudio));
         menu.Items.Add("退出", null, (_, _) => Dispatcher.Invoke(() => { forceClose = true; Close(); })); tray.ContextMenuStrip = menu;

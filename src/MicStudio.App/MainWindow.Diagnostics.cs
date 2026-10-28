@@ -8,7 +8,7 @@ public partial class MainWindow
     private string DiagnosticSummary()
     {
         var permission = new System.Security.Principal.WindowsPrincipal(System.Security.Principal.WindowsIdentity.GetCurrent()).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator) ? "管理员" : "普通权限";
-        return $"Mic Studio 0.1 · 本地诊断摘要\n时间：{DateTimeOffset.Now:yyyy-MM-dd HH:mm zzz}\n系统：{Environment.OSVersion.VersionString}\n权限：{permission}\n\n" +
+        return $"Mic Studio {ProductVersion} · 本地诊断摘要\n时间：{DateTimeOffset.Now:yyyy-MM-dd HH:mm zzz}\n系统：{Environment.OSVersion.VersionString}\n权限：{permission}\n\n" +
             $"工作路线：{(LocalMode ? "本地 DSP" : "APO 直接输入")}\n已连接录音设备：{inputs.Count(d => d.IsActive)}\n所选设备：{(SelectedInput?.IsActive == true ? "已连接" : "未连接")}\n采样率：{SampleRate} Hz\n" +
             $"APO：{(apo.Found ? "组件已检测 " + apo.Version : "未检测到")}\nAPO 音频生效：待验证\nCABLE 发送端：{outputs.Count(d => d.IsActive && d.IsCableSend)}\nCABLE 接收端：{inputs.Count(d => d.IsActive && d.IsCableReceive)}\n" +
             $"本地采集：{(engine.IsRunning ? "运行中" : "关闭")}\n录音：{(engine.IsRecording ? "进行中" : "关闭")}\n渲染缓冲重置计数：{engine.OutputBufferResets}\n" +

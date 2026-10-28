@@ -1,11 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF>
-    <AssemblyName>MicStudio.Setup</AssemblyName><RootNamespace>MicStudio.Setup</RootNamespace><Version>0.1.0</Version>
+    <AssemblyName>MicStudio.Setup</AssemblyName><RootNamespace>MicStudio.Setup</RootNamespace><Version>0.1.1</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Description>Mic Studio native per-user installer</Description>
     <PublishSingleFile>true</PublishSingleFile><IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <ApplicationIcon>../../assets/branding/mic-studio.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="../../assets/branding/mic-studio.ico" Link="Assets/mic-studio.ico" />
+    <Resource Include="../../assets/branding/mic-studio.png" Link="Assets/mic-studio.png" />
+  </ItemGroup>
   <ItemGroup Condition="'$(PayloadZip)' != '' and Exists('$(PayloadZip)')">
     <EmbeddedResource Include="$(PayloadZip)" LogicalName="MicStudio.Setup.Payload.zip" />
   </ItemGroup>
