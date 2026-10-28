@@ -71,6 +71,7 @@ public sealed class AudioSettings
     public double InputGainDb { get; set; }
     public double OutputGainDb { get; set; }
     public bool Bypass { get; set; }
+    public bool EqEnabled { get; set; } = true;
     public List<EqBand> Bands { get; set; } = CreateDefaultBands();
     public DenoiseSettings Denoise { get; set; } = new();
     public CompressorSettings Compressor { get; set; } = new();
@@ -78,17 +79,43 @@ public sealed class AudioSettings
     public LimiterSettings Limiter { get; set; } = new();
     public CreativeSettings Creative { get; set; } = new();
 
-    public static List<EqBand> CreateDefaultBands() =>
+    public static List<EqBand> CreateDefaultBands(int sampleRate = 48000)
+    {
+        if (sampleRate is < 8000 or > 384000) throw new ArgumentOutOfRangeException(nameof(sampleRate));
+        double upper = Math.Min(20000, sampleRate * 0.48);
+        return
     [
-        new() { Name = "高通", Type = EqFilterType.HighPass, FrequencyHz = 80 },
-        new() { Name = "低架", Type = EqFilterType.LowShelf, FrequencyHz = 120 },
-        new() { Name = "低频", Type = EqFilterType.Peak, FrequencyHz = 250 },
-        new() { Name = "中低频", Type = EqFilterType.Peak, FrequencyHz = 500 },
-        new() { Name = "中频", Type = EqFilterType.Peak, FrequencyHz = 1500 },
-        new() { Name = "清晰度", Type = EqFilterType.Peak, FrequencyHz = 3500 },
-        new() { Name = "高架", Type = EqFilterType.HighShelf, FrequencyHz = 7000 },
-        new() { Name = "低通", Type = EqFilterType.LowPass, FrequencyHz = 18000 }
+        new() { Name = "高通", Enabled = true, Type = EqFilterType.HighPass, FrequencyHz = 20 },
+        new() { Name = "低架", Enabled = true, Type = EqFilterType.LowShelf, FrequencyHz = 120 },
+        new() { Name = "低频", Enabled = true, Type = EqFilterType.Peak, FrequencyHz = 250 },
+        new() { Name = "中低频", Enabled = true, Type = EqFilterType.Peak, FrequencyHz = 500 },
+        new() { Name = "中频", Enabled = true, Type = EqFilterType.Peak, FrequencyHz = 1500 },
+        new() { Name = "清晰度", Enabled = true, Type = EqFilterType.Peak, FrequencyHz = Math.Min(3500, upper) },
+        new() { Name = "高架", Enabled = true, Type = EqFilterType.HighShelf, FrequencyHz = Math.Min(7000, upper) },
+        new() { Name = "低通", Enabled = true, Type = EqFilterType.LowPass, FrequencyHz = upper }
     ];
+    }
+
+    public static AudioSettings CreateDefaultForSampleRate(int sampleRate) => new() { Bands = CreateDefaultBands(sampleRate) };
+
+    /// <summary>Fits only the processing copy to the selected device; saved frequencies and disabled bands stay intact.</summary>
+    public AudioSettings CreateProcessingSnapshot(int sampleRate, out IReadOnlyList<string> adjustedBands)
+    {
+        // Validate stored values at the supported maximum rate before adapting to the current endpoint.
+        Validate(384000);
+        if (sampleRate is < 8000 or > 384000) throw new ArgumentOutOfRangeException(nameof(sampleRate));
+        var copy = Clone();
+        var adjusted = new List<string>();
+        double upper = Math.Min(20000, sampleRate * 0.48);
+        foreach (var band in copy.Bands.Where(b => b.Enabled && b.FrequencyHz >= sampleRate * 0.49))
+        {
+            band.FrequencyHz = upper;
+            adjusted.Add(band.Name);
+        }
+        copy.Validate(sampleRate);
+        adjustedBands = adjusted;
+        return copy;
+    }
 
     public AudioSettings Clone() => JsonSerializer.Deserialize<AudioSettings>(JsonSerializer.Serialize(this, JsonDefaults.Options), JsonDefaults.Options)!;
 

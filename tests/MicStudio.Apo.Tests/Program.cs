@@ -52,6 +52,14 @@ Add("native effects cannot silently pass as APO support", () =>
     settings.Bypass = true;
     Assert(!ApoConfigGenerator.Generate(settings, Endpoint).Contains("Preamp:"));
 });
+Add("EQ master off preserves digital gain without emitting filters", () =>
+{
+    var settings = EqOnly(); settings.EqEnabled = false; settings.InputGainDb = -3;
+    settings.Bands[4].GainDb = 12;
+    var text = ApoConfigGenerator.Generate(settings, Endpoint);
+    Assert(text.Contains("Preamp: -3 dB") && !text.Contains("Filter "));
+    Assert(settings.Bands[4].Enabled && settings.Bands[4].GainDb == 12);
+});
 Add("nonfinite and Nyquist-violating values rejected", () =>
 {
     var settings = EqOnly(); settings.InputGainDb = double.NaN;

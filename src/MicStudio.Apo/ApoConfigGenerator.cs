@@ -55,7 +55,7 @@ public static partial class ApoConfigGenerator
         for (var index = 0; index < settings.Bands.Count; index++)
         {
             var band = settings.Bands[index];
-            if (!band.Enabled) continue;
+            if (!settings.EqEnabled || !band.Enabled) continue;
             var type = band.Type switch
             {
                 EqFilterType.HighPass => "HPQ", EqFilterType.LowPass => "LPQ",

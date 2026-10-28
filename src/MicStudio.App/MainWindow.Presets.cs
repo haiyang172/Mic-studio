@@ -8,7 +8,7 @@ public partial class MainWindow
     private IEnumerable<SoundPreset> AllPresets() => BuiltInPresets.All.Concat(State.Presets);
     private void LoadPreset(SoundPreset preset)
     {
-        preset.Validate(); vm.Replace(preset.Settings); State.SelectedPresetId = preset.Id; SaveSoon(); ShowPage(currentPage); Notice("预设已载入草稿。点击“应用当前设置”后才改变当前处理。");
+        preset.Validate(); vm.Replace(preset.Settings); State.SelectedPresetId = preset.Id; State.CreativeThemeId = "custom"; SaveSoon(); ShowPage(currentPage);
     }
     private void SavePreset()
     {
@@ -16,7 +16,7 @@ public partial class MainWindow
         Draft.Validate();
         var name = Prompt("另存为个人预设", "我的声音"); if (name is null) return;
         var p = new SoundPreset { Name = name, Description = "个人自定义声音", Settings = Draft.Clone() }; p.Validate();
-        State.Presets.Add(p); State.SelectedPresetId = p.Id; SaveSoon(); ShowPage(currentPage); Notice("个人预设已保存。当前音频仍由“应用”单独控制。");
+        State.Presets.Add(p); State.SelectedPresetId = p.Id; SaveSoon(); ShowPage(currentPage); Notice("个人预设已保存。");
     }
     private void BuildPresets()
     {
@@ -27,15 +27,15 @@ public partial class MainWindow
             var d = new Microsoft.Win32.OpenFileDialog { Filter = "Mic Studio 预设|*.json", Title = "导入预设 · 最大 256 KB" };
             if (d.ShowDialog(this) != true) return;
             var p = PresetStore.ImportFile(d.FileName); State.Presets.Add(p); SaveSoon(); ShowPage(3);
-            Notice("预设导入成功，尚未载入或应用。APO 路线只支持其中的增益与 EQ。");
+            Notice("预设已导入，选择后使用。");
         }), B("导出当前草稿", () => ExportPreset(new SoundPreset { Name = "我的声音", Description = "Mic Studio 声音设置", Settings = Draft.Clone() }))));
-        Add(Toggle("只看收藏", favoritesOnly, v => { favoritesOnly = v; ShowPage(3); }));
+        Add(Buttons(B(favoritesOnly ? "★  已收藏" : "全部预设", () => { favoritesOnly = !favoritesOnly; ShowPage(3); })));
         var presets = AllPresets().Where(p => !favoritesOnly || p.IsFavorite).OrderByDescending(p => p.IsFavorite).ToList();
         if (presets.Count == 0) Add(T("还没有收藏。可先将内置声音复制为个人预设，再收藏。", 12, Muted));
         foreach (var item in presets)
         {
             var p = item;
-            var row = Buttons(B("载入草稿", () => LoadPreset(p), true), B("复制", () =>
+            var row = Buttons(B("使用", () => LoadPreset(p), true), B("复制", () =>
             {
                 if (State.Presets.Count >= 200) { Notice("个人预设已达 200 个。"); return; }
                 var copy = p.Clone(); copy.Id = Guid.NewGuid().ToString("N"); copy.IsBuiltIn = false; copy.Name += " · 副本"; State.Presets.Add(copy); SaveSoon(); ShowPage(3);

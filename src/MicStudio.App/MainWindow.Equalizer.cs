@@ -6,27 +6,84 @@ public partial class MainWindow
 {
     private void BuildEqualizer()
     {
-        Header("SHAPE YOUR SOUND / 02", "细调每一个频段。", "八段参数均衡器。曲线表示线性 EQ 理论响应，未包含动态、降噪和真实频谱。");
-        curve = new EqCurve { Settings = () => Draft, Rate = () => SampleRate, SelectedBand = selectedBand };
+        Header("", "均衡器", "调整后实时生效。详细参数放在高级功能中。");
+        var controls = new Grid(); controls.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); controls.ColumnDefinitions.Add(new ColumnDefinition());
+        var master = ButtonSwitch("EQ 均衡", Draft.EqEnabled, value => vm.Change(s => s.EqEnabled = value), readValue: () => Draft.EqEnabled);
+        master.VerticalAlignment = VerticalAlignment.Bottom; master.Margin = new Thickness(0, 0, 12, 10); controls.Children.Add(master);
+        var selector = BuildPresetSelector(); Grid.SetColumn(selector, 1); controls.Children.Add(selector); Add(controls);
+        curve = new EqCurve { Settings = () => Draft, Rate = () => SampleRate, SelectedBand = selectedBand, AllowEditing = false, Height = 170 };
         curve.BandSelected += i => { selectedBand = i; BuildBandEditor(); };
-        curve.BandDragged += (i, f, g) => { vm.Change(s => { s.Bands[i].FrequencyHz = f; if (s.Bands[i].Type is not (EqFilterType.HighPass or EqFilterType.LowPass)) s.Bands[i].GainDb = g; }, true); BuildBandEditor(); };
-        var toolbar = Buttons(B("一键平直 EQ", () => { vm.Change(s => s.Bands = AudioSettings.CreateDefaultBands()); ShowPage(1); }), B("复位选中频段", () => { var i = selectedBand; vm.Change(s => s.Bands[i] = AudioSettings.CreateDefaultBands()[i]); ShowPage(1); }));
-        Add(Card("EQ 理论响应", $"对数频率 · 当前采样率 {SampleRate / 1000.0:0.#} kHz · 增益坐标 ±18 dB", curve, toolbar));
+        curve.BandDragged += (i, f, g) =>
+        {
+            vm.Change(s =>
+            {
+                s.EqEnabled = true; s.Bands[i].Enabled = true; s.Bands[i].FrequencyHz = f;
+                if (s.Bands[i].Type is not (EqFilterType.HighPass or EqFilterType.LowPass)) s.Bands[i].GainDb = g;
+            }, true);
+            BuildBandEditor();
+        };
+        var gains = new System.Windows.Controls.Primitives.UniformGrid { Columns = 2 };
+        for (var i = 1; i < Draft.Bands.Count - 1; i++)
+        {
+            var index = i;
+            var gain = Parameter(Draft.Bands[i].Name, -12, 12, Draft.Bands[i].GainDb, value =>
+                vm.Change(s => { s.EqEnabled = true; s.Bands[index].Enabled = true; s.Bands[index].GainDb = value; }, true), "dB", readValue: () => Draft.Bands[index].GainDb);
+            gain.Margin = new Thickness(0, 2, 12, 12); gains.Children.Add(gain);
+        }
+        var sound = Card("音色", "旧主题中关闭的频段会保留原状态；调节该频段即启用。", gains);
+        var response = Card("声音曲线", "线性 EQ 理论响应，不是真实频谱。", curve);
+        var ordinary = new Grid(); ordinary.ColumnDefinitions.Add(new ColumnDefinition()); ordinary.ColumnDefinitions.Add(new ColumnDefinition());
+        ordinary.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); ordinary.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        ordinary.Children.Add(sound); ordinary.Children.Add(response);
+        bool? sideBySide = null;
+        void ArrangeOrdinary()
+        {
+            var wide = ordinary.ActualWidth >= 800; if (sideBySide == wide) return; sideBySide = wide;
+            Grid.SetColumnSpan(sound, wide ? 1 : 2); Grid.SetColumnSpan(response, wide ? 1 : 2);
+            Grid.SetColumn(response, wide ? 1 : 0); Grid.SetRow(response, wide ? 0 : 1);
+            sound.Margin = new Thickness(0, 0, wide ? 12 : 0, 12);
+        }
+        ordinary.SizeChanged += (_, _) => ArrangeOrdinary(); Add(ordinary);
+        var advancedContent = new StackPanel();
         var bands = new WrapPanel();
-        for (var i = 0; i < Draft.Bands.Count; i++) { var index = i; var b = B($"{i + 1} · {Draft.Bands[i].Name}", () => { selectedBand = index; if (curve != null) { curve.SelectedBand = index; curve.InvalidateVisual(); } BuildBandEditor(); }); bands.Children.Add(b); }
-        Add(bands); bandEditor = new StackPanel(); Add(bandEditor); BuildBandEditor();
-        AdaptiveCards(Card("输入数字增益", "改变此值后需主动应用。", Parameter("输入增益", -24, 30, Draft.InputGainDb, v => vm.Change(s => s.InputGainDb = v, true), "dB")), Card("输出补偿", "给滤波提升留出数字余量。", Parameter("输出补偿", -24, 0, Draft.OutputGainDb, v => vm.Change(s => s.OutputGainDb = v, true), "dB")));
-        var maxBoost = Enumerable.Range(0, 200).Select(i => DspProcessor.EqResponseDb(Draft, 20 * Math.Pow(Math.Min(20000, SampleRate * .48) / 20, i / 199.0), SampleRate)).Max();
-        Add(T($"EQ 最大提升：{maxBoost:0.0} dB", 12, Amber));
+        for (var i = 0; i < Draft.Bands.Count; i++)
+        {
+            var index = i;
+            bands.Children.Add(B($"{i + 1} · {Draft.Bands[i].Name}", () =>
+            {
+                selectedBand = index;
+                if (curve != null) { curve.SelectedBand = index; curve.InvalidateVisual(); }
+                BuildBandEditor();
+            }));
+        }
+        advancedContent.Children.Add(bands);
+        bandEditor = new StackPanel(); advancedContent.Children.Add(bandEditor); BuildBandEditor();
+        advancedContent.Children.Add(Card("增益与余量", "提升 EQ 后可降低输出补偿，给数字处理保留余量。",
+            Parameter("输入增益", -24, 30, Draft.InputGainDb, v => vm.Change(s => s.InputGainDb = v, true), "dB", readValue: () => Draft.InputGainDb),
+            Parameter("输出补偿", -24, 0, Draft.OutputGainDb, v => vm.Change(s => s.OutputGainDb = v, true), "dB", readValue: () => Draft.OutputGainDb)));
+        var advanced = new Expander { Header = "高级功能", Foreground = Ink, Content = advancedContent, Margin = new Thickness(0, 8, 0, 14) };
+        advanced.Expanded += (_, _) => { if (curve != null) { curve.AllowEditing = true; curve.InvalidateVisual(); } };
+        advanced.Collapsed += (_, _) => { if (curve != null) { curve.AllowEditing = false; curve.InvalidateVisual(); } };
+        Add(advanced);
     }
+
     private void BuildBandEditor()
     {
         if (bandEditor is null) return;
-        var wasBuilding = building; building = true; bandEditor.Children.Clear(); var i = selectedBand; var band = Draft.Bands[i];
-        var toggle = Toggle("启用此频段", band.Enabled, value => vm.Change(s => s.Bands[i].Enabled = value));
-        var frequency = Parameter("频率", 20, Math.Min(band.Type == EqFilterType.HighPass ? 250 : 20000, SampleRate * .49 - 1), band.FrequencyHz, value => vm.Change(s => s.Bands[i].FrequencyHz = value, true), "Hz", 1);
-        var gain = band.Type is EqFilterType.HighPass or EqFilterType.LowPass ? T("此滤波类型没有增益参数。", 11, Muted) as UIElement : Parameter("增益", -12, 12, band.GainDb, value => vm.Change(s => s.Bands[i].GainDb = value, true), "dB");
-        bandEditor.Children.Add(Card($"{i + 1} · {band.Name}", "拖动曲线可调频率和增益；也可使用下面的键盘数值输入。", toggle, frequency, gain, Parameter("Q · 带宽", .2, 10, band.Q, value => vm.Change(s => s.Bands[i].Q = value, true), "", .01)));
-        building = wasBuilding;
+        var wasBuilding = building; building = true;
+        try
+        {
+            bandEditor.Children.Clear();
+            selectedBand = Math.Clamp(selectedBand, 0, Draft.Bands.Count - 1);
+            var i = selectedBand; var band = Draft.Bands[i];
+            void ChangeBand(Action<EqBand> change) => vm.Change(s => { s.EqEnabled = true; s.Bands[i].Enabled = true; change(s.Bands[i]); }, true);
+            var frequency = Parameter("频率", 20, Math.Min(band.Type == EqFilterType.HighPass ? 250 : 20000, SampleRate * .49 - 1), band.FrequencyHz, value => ChangeBand(b => b.FrequencyHz = value), "Hz", 1, readValue: () => Draft.Bands[i].FrequencyHz);
+            var gain = band.Type is EqFilterType.HighPass or EqFilterType.LowPass ? null : Parameter("增益", -12, 12, band.GainDb, value => ChangeBand(b => b.GainDb = value), "dB", readValue: () => Draft.Bands[i].GainDb);
+            var content = new StackPanel(); content.Children.Add(frequency);
+            if (gain != null) content.Children.Add(gain);
+            content.Children.Add(Parameter("Q · 带宽", .2, 10, band.Q, value => ChangeBand(b => b.Q = value), "", .01, readValue: () => Draft.Bands[i].Q));
+            bandEditor.Children.Add(Card($"{i + 1} · {band.Name}", band.Enabled ? "调节即生效，可拖动曲线。" : "此频段来自旧主题，调节即启用。", content));
+        }
+        finally { building = wasBuilding; }
     }
 }

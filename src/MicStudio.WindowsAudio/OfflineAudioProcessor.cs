@@ -56,8 +56,10 @@ public static class OfflineAudioProcessor
             var channels = input.WaveFormat.Channels;
             if (channels is < 1 or > 8 || rate is < 8000 or > 384000 || input.TotalTime.TotalSeconds > 120 || input.TotalTime <= TimeSpan.Zero)
                 throw new ArgumentException("离线比较支持 1–8 声道、8–384 kHz、最长 120 秒的非空 WAV。");
-            settings.Validate(rate);
-            var processor = new DspProcessor(rate, channels, settings);
+            // A portable theme can contain frequencies above this WAV's Nyquist
+            // limit. Adapt a processing copy, keeping the saved theme intact.
+            var processingSettings = settings.CreateProcessingSnapshot(rate, out var adjustedBands);
+            var processor = new DspProcessor(rate, channels, processingSettings);
             var latencySamples = processor.AlgorithmLatencySamples;
             var skip = latencySamples * channels;
             var source = input.ToSampleProvider();
@@ -120,7 +122,8 @@ public static class OfflineAudioProcessor
                 Db(dryStats.Rms * referenceGain), Db(wetStats.Rms * wetGain),
                 Db(dryStats.Peak * referenceGain), Db(wetStats.Peak * wetGain), matched, latencySamples,
                 "同一次录音的离线比较；使用整段 RMS 对齐，并非 LUFS。−1 dBFS 为采样峰值上限，并非真峰值。输入可能已含系统效果，请使用本地 DSP 前采集的测试源；创意效果尾音按原录音时长截断。"
-                + (matchLoudness && !matched ? " 一份音频接近静音，未进行 RMS 匹配。" : ""));
+                + (matchLoudness && !matched ? " 一份音频接近静音，未进行 RMS 匹配。" : "")
+                + (adjustedBands.Count > 0 ? " 已按录音采样率适配 EQ：" + string.Join("、", adjustedBands) + "；原设置未修改。" : ""));
         }
         finally
         {

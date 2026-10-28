@@ -18,22 +18,18 @@ public partial class MainWindow
             {
                 var systemVolume = devices.GetInputVolume(input.Id);
                 volume.Children.Add(Parameter("系统音量", 0, 100, systemVolume.Scalar * 100, v => { devices.SetInputVolume(input.Id, v / 100); CancelCalibration(); InvalidateDiscord(); }, "%", 1));
-                volume.Children.Add(Toggle("麦克风静音", systemVolume.Muted, value => { devices.SetInputMute(input.Id, value); CancelCalibration(); InvalidateDiscord(); }));
+                volume.Children.Add(ButtonSwitch("麦克风静音", systemVolume.Muted, value => { devices.SetInputMute(input.Id, value); CancelCalibration(); InvalidateDiscord(); }));
             }
             catch (Exception ex) { volume.Children.Add(T("系统音量不可调", 12, Amber)); volume.ToolTip = ex.Message; }
         }
         else volume.Children.Add(T("麦克风未连接", 14, Amber));
         volume.Children.Add(Parameter("输入增益", -24, 30, Draft.InputGainDb, v => vm.Change(s => s.InputGainDb = v, true), "dB"));
-        volume.Children.Add(Buttons(B(LocalMode ? "开始处理" : "开始测量", () => StartAudio(LocalMode), true), B("停止", StopAudio)));
+        playerButton = B("开始处理", () => { if (engine.IsRunning) StopAudio(); else StartAudio(LocalMode); }, true);
+        volume.Children.Add(Buttons(playerButton));
         AdaptiveCards(Card("输入", "系统音量和静音会立即作用于所选麦克风，包括其他应用。", volume), Card("电平", "开始后显示真实峰值；采集输入可能包含 Windows 系统效果。", MeterBlock(false), LocalMode ? MeterBlock(true) : T("APO 音频生效待验证", 12, Amber)));
         var quick = new WrapPanel();
-        foreach (var preset in BuiltInPresets.All)
-        {
-            var p = preset;
-            var button = B(p.Name, () => { LoadPreset(p); }); button.ToolTip = p.Description; quick.Children.Add(button);
-        }
         foreach (var button in new[] { B("均衡器", () => ShowPage(1)), B("效果", () => ShowPage(2)), B("另存预设", SavePreset), B("连接", () => ShowPage(4)) }) quick.Children.Add(button);
-        var tone = Card("音色", null, quick, T(LocalMode ? "其他软件的输入选：CABLE Output" : "其他软件的输入选：原麦克风", 13, Accent));
+        var tone = Card("音色", null, BuildPresetSelector(false), quick, T(LocalMode ? "其他软件的输入选：CABLE Output" : "系统 APO 需在设备页更新配置", 13, Accent));
         Add(tone);
         Add(new Expander { Header = "增益校准", Foreground = Ink, Content = CalibrationControls(), Margin = new(0, 4, 0, 6) });
         Add(new Expander { Header = "录音与比较", Foreground = Ink, Content = RecordingControls(), Margin = new(0, 6, 0, 6) });
@@ -73,7 +69,7 @@ public partial class MainWindow
             meter.Bar.Value = Math.Clamp(peak, -60, 0);
         }
         if (calibrating && m.InputPeakDb > -65 && double.IsFinite(m.InputPeakDb)) calibrationPeaks.Add(LocalMode ? m.InputPeakDb : m.OutputPeakDb);
-        CaptureFooter.Text = $"●  正在采集 · {m.SampleRate / 1000.0:0.#} kHz / {m.Channels}ch · {m.Elapsed.ToString("mm':'ss")}" + (m.ClippedSamples > 0 ? " · 检测到削波" : "");
+        CaptureFooter.Text = (LocalMode ? "●  处理中" : "●  测量中") + (m.ClippedSamples > 0 ? " · 检测到削波" : "");
     }
     private UIElement SessionControls()
     {
@@ -92,7 +88,7 @@ public partial class MainWindow
         p.Children.Add(Buttons(B("校准 · 6 秒", BeginCalibration), B("采用建议", () =>
         {
             if (suggestedGain is null) { Notice("请先正常讲话校准。噪声或静音不足以确定合适的增益。"); return; }
-            vm.Change(s => s.InputGainDb = suggestedGain.Value); ShowPage(currentPage); Notice("建议已写入草稿。检查后点击“应用当前设置”。");
+            vm.Change(s => s.InputGainDb = suggestedGain.Value); ShowPage(currentPage); Notice(engine.IsRunning ? "已采用建议增益，声音实时更新。" : "已采用建议增益，下次开始时使用。");
         })));
         if (suggestedGain is { } suggested) p.Children.Add(T($"建议：{suggested:+0.0;-0.0;0} dB", 13, Accent));
         return p;
@@ -120,7 +116,7 @@ public partial class MainWindow
         var speechPeak = calibrationPeaks[(int)Math.Floor((calibrationPeaks.Count - 1) * .9)];
         suggestedGain = Math.Round(Math.Clamp(-12 - speechPeak, -24, 30), 1);
         ShowPage(currentPage);
-        Notice($"测得较响讲话峰值约 {speechPeak:0.0} dBFS；建议输入增益 {suggestedGain:+0.0;-0.0;0} dB。请检查后主动应用，真实听感仍需验证。");
+        Notice($"测得较响讲话峰值约 {speechPeak:0.0} dBFS；建议输入增益 {suggestedGain:+0.0;-0.0;0} dB。点击“采用建议”使用，真实听感仍需试听。");
     }
     private UIElement RecordingControls()
     {
@@ -152,7 +148,7 @@ public partial class MainWindow
             var result = await OfflineAudioProcessor.ProcessFileAsync(source, d.FileName, Draft.Clone(), true, cancellationToken: lifetime.Token);
             if (closed) return;
             comparison = result;
-            Notice(result.LoudnessMatched ? "A/B 已生成：同一次录音，整段 RMS 匹配（非 LUFS）。" : "A/B 已生成；接近静音，未作 RMS 匹配。");
+            Notice((result.LoudnessMatched ? "A/B 已生成：同一次录音，整段 RMS 匹配（非 LUFS）。" : "A/B 已生成；接近静音，未作 RMS 匹配。") + result.Warning);
         }), B("A · 参考", () => PlayComparison(false)), B("B · 效果", () => PlayComparison(true))));
         return p;
     }

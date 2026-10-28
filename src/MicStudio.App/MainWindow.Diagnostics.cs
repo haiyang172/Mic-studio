@@ -39,7 +39,7 @@ public partial class MainWindow
         Add(Card("外观", "石墨色与浅色主题；界面随窗口宽度折叠导航。", Buttons(B("石墨色", () => { State.Theme = "dark"; ApplyTheme(); SaveSoon(); ShowPage(6); }), B("浅色", () => { State.Theme = "light"; ApplyTheme(); SaveSoon(); ShowPage(6); })), T("界面语言：简体中文。英文界面尚未提供。", 11, Muted)));
         Add(Card("关闭行为", "默认关闭窗口即停止本地音频。APO 系统配置可能继续生效。", Toggle("关闭到托盘，保持当前本地音频运行", State.MinimizeToTray, value => { State.MinimizeToTray = value; if (value) EnsureTray(); SaveSoon(); }), T("启用后，托盘菜单可随时停止音频或退出。程序重新启动仍不会自动采集。", 11, Muted), B("立即停止本地音频", StopAudio)));
         Add(Card("管理员操作", "日常使用普通权限。只有安装/绑定组件或写受保护 APO 文件才需要 UAC。", B("请求管理员启动", RestartElevated), T("重新启动会停止采集并保留草稿。Windows UAC 由你确认；取消后继续使用当前窗口。不会放宽 Program Files 权限。", 11, Muted)));
-        Add(Card("本地数据", "预设与草稿不上传；私人录音由用户自行选择保存位置。", Buttons(B("打开个人数据目录", () => { Directory.CreateDirectory(StudioViewModel.DataDirectory); Open(StudioViewModel.DataDirectory); }), B("另存当前声音", SavePreset)), T("快捷键：Ctrl+Z 撤销、Ctrl+Y 重做、Ctrl+S 另存预设。编辑数值后按 Enter 或移开焦点提交。", 11, Muted)));
+        Add(Card("本地数据", "预设与草稿不上传；私人录音由用户自行选择保存位置。", Buttons(B("打开个人数据目录", () => { Directory.CreateDirectory(StudioViewModel.DataDirectory); Open(StudioViewModel.DataDirectory); }), B("另存当前声音", SavePreset)), T("Ctrl+S 另存预设。编辑数值后按 Enter 或移开焦点提交。", 11, Muted)));
         Add(Card("组件", "NAudio 2.3.0 · .NET 10 · Windows WASAPI", Buttons(B("驱动管理", () => ShowPage(4)), B("Equalizer APO", () => Open("https://sourceforge.net/p/equalizerapo/wiki/Documentation/")))));
     }
 }
