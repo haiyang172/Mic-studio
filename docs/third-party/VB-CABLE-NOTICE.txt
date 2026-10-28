@@ -1,0 +1,25 @@
+VB-CABLE — VB-Audio Software
+
+官方来源 / Origin: https://vb-cable.com/
+产品页面 / Product: https://vb-audio.com/Cable/
+
+VB-CABLE 是 Donationware。有用时欢迎捐赠或购买许可证：
+VB-CABLE is donationware; all participations are welcome.
+https://vb-audio.com/Services/licensing.htm
+https://shop.vb-audio.com/en/win-apps/11-vb-cable.html
+
+Mic Studio 随附未修改的标准 VB-CABLE Pack45 原始 ZIP，并保留原安装器及说明。
+版权归 VB-Audio / Vincent Burel。此组件不是 Mic Studio 自研驱动。
+没有捆绑另行付费下载的 VB-CABLE A+B、C+D。
+
+驱动安装须由用户主动发起，并在 Windows UAC 中确认；官方安装器可能要求重启。
+不会因安装 Mic Studio 自动改动系统默认输入、已有驱动或其他程序的设置。
+
+许可与分发说明（核对日期 2026-10-28）：
+https://vb-audio.com/Services/licensing.htm
+若在用户无法识别产品、无法自行支付许可的机构或企业环境部署，
+请按 VB-Audio 对该使用情形的条款购买所需许可证。
+
+原始包：VBCABLE_Driver_Pack45.zip (1,318,877 bytes)
+SHA-256:
+b950e39f01af1d04ea623c8f6d8eb9b6ea5c477c637295fabf20631c85116bfb

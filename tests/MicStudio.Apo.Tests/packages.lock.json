@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0-windows7.0": {
+      "micstudio.apo": {
+        "type": "Project",
+        "dependencies": {
+          "MicStudio.Core": "[1.0.0, )"
+        }
+      },
+      "micstudio.core": {
+        "type": "Project"
+      }
+    },
+    "net10.0-windows7.0/win-x64": {}
+  }
+}
