@@ -10,7 +10,9 @@ public sealed class WorkspaceState
     public string? CableOutputId { get; set; }
     public string? PlaybackOutputId { get; set; }
     public int Mode { get; set; }
-    public string SelectedPresetId { get; set; } = "flat";
+    public string SelectedPresetId { get; set; } = "";
+    public string CreativeThemeId { get; set; } = "warm";
+    public int CreativeEnabledMask { get; set; } = 1;
     public List<SoundPreset> Presets { get; set; } = new();
     public DateTimeOffset? DiscordVerifiedAt { get; set; }
     public string Theme { get; set; } = "dark";

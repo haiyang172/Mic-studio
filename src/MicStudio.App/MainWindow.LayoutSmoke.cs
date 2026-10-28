@@ -18,21 +18,26 @@ public partial class MainWindow
             Width = Math.Min(size.W, SystemParameters.WorkArea.Width); Height = Math.Min(size.H, SystemParameters.WorkArea.Height);
             for (var page = 0; page < 7; page++)
             {
-                ShowPage(page); await Dispatcher.InvokeAsync(() => UpdateLayout(), DispatcherPriority.Render); await Task.Delay(50);
+                ShowPage(page);
+                foreach (var details in page is 1 or 2 ? new[] { false, true } : new[] { false })
+                {
+                foreach (var expander in Descendants<Expander>(PageContent).Where(e => e.Header as string == "高级功能")) expander.IsExpanded = details;
+                await Dispatcher.InvokeAsync(() => UpdateLayout(), DispatcherPriority.Render); await Task.Delay(50);
                 var rightOverflow = PageContent.ActualWidth > PageScroll.ViewportWidth + 3;
                 var buttons = Descendants<System.Windows.Controls.Button>(PageContent).Count();
                 PageScroll.ScrollToEnd(); await Dispatcher.InvokeAsync(() => UpdateLayout(), DispatcherPriority.Render);
                 var reachable = PageScroll.ExtentHeight <= PageScroll.ViewportHeight + 3 || Math.Abs(PageScroll.VerticalOffset - PageScroll.ScrollableHeight) < 3;
                 PageScroll.ScrollToTop(); await Dispatcher.InvokeAsync(() => UpdateLayout(), DispatcherPriority.Render);
-                results.Add(new { size.W, size.H, Page = pageNames[page], PageContent.ActualWidth, PageScroll.ViewportWidth, PageScroll.ExtentHeight, PageScroll.ViewportHeight, ScrollReachable = reachable, RightOverflow = rightOverflow, Buttons = buttons });
-                if (!reachable || rightOverflow) throw new InvalidOperationException("窗口内容无法完整访问：" + pageNames[page]);
+                results.Add(new { size.W, size.H, Page = pageNames[page], Advanced = details, PageContent.ActualWidth, PageScroll.ViewportWidth, PageScroll.ExtentHeight, PageScroll.ViewportHeight, ScrollReachable = reachable, RightOverflow = rightOverflow, Buttons = buttons });
+                if (!reachable || rightOverflow) throw new InvalidOperationException($"窗口内容无法完整访问：{pageNames[page]} {size.W}x{size.H} advanced={details}; width={PageContent.ActualWidth:0.0}, viewport={PageScroll.ViewportWidth:0.0}; scroll={reachable}");
                 var visual = (Visual)Content;
                 var bitmap = new RenderTargetBitmap((int)((FrameworkElement)Content).ActualWidth, (int)((FrameworkElement)Content).ActualHeight, 96, 96, PixelFormats.Pbgra32); bitmap.Render(visual);
                 var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
-                using var file = File.Create(Path.Combine(directory, $"{size.W}x{size.H}-{page + 1}.png")); encoder.Save(file);
+                using var file = File.Create(Path.Combine(directory, $"{size.W}x{size.H}-{page + 1}{(details ? "-advanced" : "")}.png")); encoder.Save(file);
+                }
             }
         }
-        File.WriteAllText(Path.Combine(directory, "layout-report.json"), JsonSerializer.Serialize(new { Method = "Actual WPF window layout at 3 DIP sizes, all 7 pages; OS DPI unchanged. Manual UI interaction separate.", Results = results }, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(Path.Combine(directory, "layout-report.json"), JsonSerializer.Serialize(new { Method = "Actual WPF window layout at 3 DIP sizes, all 7 pages plus expanded EQ/effects; OS DPI unchanged. Manual UI interaction separate.", Results = results }, new JsonSerializerOptions { WriteIndented = true }));
         State.Theme = "light"; ApplyTheme(); Width = 1280; Height = 820;
         foreach (var page in new[] { 0, 2, 4, 6 })
         {
@@ -60,24 +65,63 @@ public partial class MainWindow
         gain.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(this), Environment.TickCount, Key.Enter) { RoutedEvent = Keyboard.KeyDownEvent });
         Check(Math.Abs(Draft.InputGainDb - 6.5) < .001, "Non-finite numeric input rejected");
         gain.Text = "6.5";
-        var undoButton = Descendants<System.Windows.Controls.Button>(PageContent).First(b => b.Content as string == "撤销");
-        undoButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
-        Check(Math.Abs(Draft.InputGainDb) < .001, "Undo button restores draft");
-        var redoButton = Descendants<System.Windows.Controls.Button>(PageContent).First(b => b.Content as string == "重做");
-        redoButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
-        Check(Math.Abs(Draft.InputGainDb - 6.5) < .001, "Redo button restores numeric value");
+        Check(!Descendants<System.Windows.Controls.Button>(PageContent).Any(b => b.Content as string is "应用" or "撤销" or "重做"), "Ordinary toolbar only offers restore defaults");
+        Check(Descendants<System.Windows.Controls.Button>(PageContent).Count(b => AutomationProperties.GetName(b) is "开始处理" or "停止") == 1, "Single player control while stopped");
+        BypassButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+        Check(Draft.Bypass && BypassButton.Content as string == "效果开关：关", "Effects off correctly enables DSP bypass without microphone mute");
+        BypassButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+        Check(!Draft.Bypass && BypassButton.Content as string == "效果开关：开", "Effects on correctly disables DSP bypass");
         ShowPage(1); UpdateLayout();
-        var toggle = Descendants<CheckBox>(PageContent).First(c => (c.Content as TextBlock)?.Text == "启用此频段");
-        toggle.IsChecked = true; toggle.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
-        Check(Draft.Bands[selectedBand].Enabled, "EQ enabled checkbox controls actual band");
+        Check(!Descendants<CheckBox>(PageContent).Any(c => (c.Content as TextBlock)?.Text == "启用此频段"), "No per-band activation prerequisite");
+        var advanced = Descendants<Expander>(PageContent).Single(e => e.Header as string == "高级功能");
+        Check(!advanced.IsExpanded && curve is { AllowEditing: false }, "EQ details collapsed and curve read-only by default");
+        advanced.IsExpanded = true;
+        Check(curve is { AllowEditing: true }, "Advanced expansion enables curve editing");
+        advanced.IsExpanded = false;
+        Check(curve is { AllowEditing: false }, "Closing advanced leaves parameters and disables curve dragging");
+        var eqToggle = Descendants<System.Windows.Controls.Button>(PageContent).Single(b => (b.Content as string)?.StartsWith("EQ 均衡：") == true);
+        eqToggle.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+        Check(!Draft.EqEnabled, "Master EQ off controls the actual setting");
+        var eqGain = Descendants<Slider>(PageContent).Single(s => AutomationProperties.GetName(s) == Draft.Bands[1].Name);
+        eqGain.Value = 2;
+        Check(Draft.EqEnabled && Draft.Bands[1].Enabled && Math.Abs(Draft.Bands[1].GainDb - 2) < .001, "Ordinary gain directly enables and edits the band");
+        eqToggle = Descendants<System.Windows.Controls.Button>(PageContent).Single(b => (b.Content as string)?.StartsWith("EQ 均衡：") == true);
+        Check(eqToggle.Content as string == "EQ 均衡：开", "EQ switch refreshes after another control enables EQ");
+        var nonEq = Draft.Clone();
+        LoadEqPreset(BuiltInPresets.All.Single(p => p.Id == "natural"));
+        var nonEqAfter = Draft.Clone(); nonEqAfter.Bands = nonEq.Bands; nonEqAfter.EqEnabled = nonEq.EqEnabled;
+        Check(SettingsJson(nonEqAfter) == SettingsJson(nonEq), "EQ theme preserves gain and all other processing settings");
+        eqGain = Descendants<Slider>(PageContent).Single(s => AutomationProperties.GetName(s) == Draft.Bands[1].Name); eqGain.Value = 3;
+        var eqPicker = Descendants<ComboBox>(PageContent).Single(c => AutomationProperties.GetName(c) == "EQ 主题");
+        Check((eqPicker.SelectedItem as ComboBoxItem)?.Content as string == "自定义" && CurrentPresetName() == "自定义", "Editing a theme refreshes both preset indicators to custom");
         LoadPreset(BuiltInPresets.All.Single(p => p.Id == "natural"));
         Check(State.SelectedPresetId == "natural" && Draft.Bands[0].Enabled, "Preset loads actual draft without audio");
+        Check(CurrentPresetName() == "自然", "Unmodified preset shows its name");
+        vm.Change(s => { s.Creative.RobotEnabled = true; s.Creative.DelayEnabled = true; s.Creative.DelayMix = .23; }); State.CreativeThemeId = "custom"; ShowPage(2); UpdateLayout();
+        var ratioBeforeFocus = Draft.Compressor.Ratio;
+        var strength = Descendants<TextBox>(PageContent).Where(t => AutomationProperties.GetName(t) == "强度数值").Skip(1).First();
+        strength.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(this), Environment.TickCount, Key.Enter) { RoutedEvent = Keyboard.KeyDownEvent });
+        Check(Draft.Compressor.Ratio == ratioBeforeFocus, "Rounded percentage display never changes precise settings without an edit");
+        var creativeToggle = Descendants<System.Windows.Controls.Button>(PageContent).Single(b => (b.Content as string)?.StartsWith("创意声音：") == true);
+        creativeToggle.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+        Check(!Draft.Creative.RobotEnabled && !Draft.Creative.DelayEnabled, "Creative master disables the active combination");
+        creativeToggle = Descendants<System.Windows.Controls.Button>(PageContent).Single(b => (b.Content as string)?.StartsWith("创意声音：") == true);
+        creativeToggle.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+        Check(Draft.Creative.RobotEnabled && Draft.Creative.DelayEnabled && Math.Abs(Draft.Creative.DelayMix - .23) < .001 && State.CreativeThemeId == "custom", "Creative off/on preserves custom combination and parameters");
+        var personal = new SoundPreset { Id = "smoke-personal", Name = "保留个人主题", Settings = Draft.Clone() }; State.Presets.Add(personal);
+        var inputId = State.InputDeviceId; var cableId = State.CableOutputId; var theme = State.Theme; var trayOption = State.MinimizeToTray;
+        var reset = Descendants<System.Windows.Controls.Button>(PageContent).Single(b => b.Content as string == "恢复默认"); reset.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+        Check(SettingsJson(Draft) == SettingsJson(AudioSettings.CreateDefaultForSampleRate(SampleRate)) && CurrentPresetName() == "无", "Restore defaults resets audio settings and preset status");
+        Check(State.Presets.Contains(personal) && State.InputDeviceId == inputId && State.CableOutputId == cableId && State.Theme == theme && State.MinimizeToTray == trayOption, "Restore preserves personal themes, devices and preferences");
+        vm.Change(s => { s.EqEnabled = false; s.Bands[4].Enabled = false; s.Bands[4].GainDb = 12; }); vm.Save();
+        var reloaded = new StudioViewModel();
+        Check(!reloaded.State.Draft.EqEnabled && !reloaded.State.Draft.Bands[4].Enabled && reloaded.State.Draft.Bands[4].GainDb == 12, "Persistence preserves master EQ and old disabled boost");
         ShowPage(4); UpdateLayout();
         Check(Descendants<System.Windows.Controls.Button>(PageContent).Any(b => b.Content as string == "重新下载"), "Driver re-download command is reachable");
         var saved = State.CableOutputId; State.CableOutputId = null; StartAudio(true); State.CableOutputId = saved;
         Check(!engine.IsRunning, "Missing cable cannot silently start capture-only");
-        ApplyDraft(); Check(!engine.IsRunning, "Apply while stopped never opens microphone");
-        vm.Replace(new AudioSettings()); State.SelectedPresetId = "flat"; NoticeBar.Visibility = Visibility.Collapsed;
+        FlushLiveSettings(); Check(!engine.IsRunning && !engine.IsRecording && !monitor, "Edits, presets, restore and pending live flush never open stopped audio");
+        State.Presets.Remove(personal); RestoreDefaults(); ShowPage(0); NoticeBar.Visibility = Visibility.Collapsed;
         File.WriteAllText(Path.Combine(directory, "control-events.json"), JsonSerializer.Serialize(new { Method = "Actual WPF controls and routed handlers in application test mode; not physical mouse/keyboard automation or microphone acceptance.", Passed = checks.Count, Checks = checks }, new JsonSerializerOptions { WriteIndented = true }));
     }
     private static IEnumerable<T> Descendants<T>(DependencyObject parent) where T : DependencyObject

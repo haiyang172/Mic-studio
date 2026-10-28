@@ -9,7 +9,7 @@ void Test(string name, Action test)
 void Require(bool condition, string message) { if (!condition) throw new Exception(message); }
 void Near(double actual, double expected, double tolerance, string message) => Require(Math.Abs(actual - expected) <= tolerance, $"{message}: {actual:F5} vs {expected:F5}");
 void Reject(Action action, string message) { bool rejected = false; try { action(); } catch { rejected = true; } Require(rejected, message); }
-AudioSettings Flat() { var s = new AudioSettings(); s.Limiter.Enabled = false; return s; }
+AudioSettings Flat() { var s = new AudioSettings(); s.Limiter.Enabled = false; foreach (var band in s.Bands) band.Enabled = false; return s; }
 float[] Tone(double frequency, double amplitude, int length = 96000) => Enumerable.Range(0, length).Select(i => (float)(amplitude * Math.Sin(2 * Math.PI * frequency * i / 48000))).ToArray();
 double Rms(float[] data, int start = 24000) => Math.Sqrt(data.Skip(start).Select(v => (double)v * v).Average());
 
@@ -17,6 +17,34 @@ Test("Eight bands and all factory presets validate", () =>
 {
     Require(new AudioSettings().Bands.Count == 8, "Band count");
     foreach (var p in BuiltInPresets.All) p.Validate();
+});
+Test("Default EQ is usable at every supported device sample rate", () =>
+{
+    foreach (int rate in new[] { 8000, 16000, 22050, 44100, 48000, 96000, 384000 })
+    {
+        var s = AudioSettings.CreateDefaultForSampleRate(rate); s.Validate(rate);
+        Require(s.EqEnabled && s.Bands.All(b => b.Enabled), "Default bands need individual enabling");
+        Require(s.Bands.All(b => b.FrequencyHz < rate * .49), "Default exceeds device bandwidth");
+    }
+});
+Test("Device snapshot adapts enabled high bands without changing the saved preset", () =>
+{
+    var saved = new AudioSettings(); saved.Bands[6].GainDb = 12; saved.Bands[6].Enabled = false;
+    var copy = saved.CreateProcessingSnapshot(16000, out var changed); copy.Validate(16000);
+    Near(saved.Bands[7].FrequencyHz, 20000, 0, "Saved LP changed");
+    Near(copy.Bands[7].FrequencyHz, 7680, 0, "Processing LP did not fit endpoint");
+    Require(changed.SequenceEqual(new[] { "低通" }), "Unexpected adaptation list");
+    Require(!copy.Bands[6].Enabled && copy.Bands[6].GainDb == 12, "Disabled legacy boost activated");
+    copy.Bands[4].GainDb = -3; Near(saved.Bands[4].GainDb, 0, 0, "Snapshot aliases saved bands");
+});
+Test("Legacy JSON preserves disabled bands and adds only the master EQ default", () =>
+{
+    var s = Flat(); s.Bands[4].GainDb = 12;
+    var json = System.Text.Json.JsonSerializer.Serialize(s, JsonDefaults.Options).Replace("  \"eqEnabled\": true,\r\n", "").Replace("  \"eqEnabled\": true,\n", "");
+    Require(!json.Contains("eqEnabled"), "Legacy fixture still contains new master property");
+    var restored = System.Text.Json.JsonSerializer.Deserialize<AudioSettings>(json, JsonDefaults.Options)!;
+    Require(restored.EqEnabled && restored.Bands.All(b => !b.Enabled), "Legacy flags changed");
+    Near(DspProcessor.EqResponseDb(restored, 1500), 0, 0, "Disabled legacy boost became audible");
 });
 Test("Factory presets never share mutable settings", () =>
 {
@@ -56,7 +84,7 @@ Test("Peak EQ measured center gain matches analytic response", () =>
 });
 Test("High-pass removes rumble while preserving voice band", () =>
 {
-    var s = Flat(); s.Bands[0].Enabled = true;
+    var s = Flat(); s.Bands[0].Enabled = true; s.Bands[0].FrequencyHz = 80;
     foreach (var hz in new[] { 25, 1000 })
     {
         var data = Tone(hz, .02); var before = Rms(data);
@@ -205,12 +233,71 @@ Test("Gain updates ramp while preserving spectral overlap history", () =>
     Require(changed.All(v => v > .024f), "Spectral buffer dropout on gain update");
     Near(changed[^1], .1 * DspProcessor.DbToLinear(-12), .00001, "Gain ramp settled");
 });
+Test("EQ master changes measured response live while retaining input gain", () =>
+{
+    var s = Flat(); s.InputGainDb = -6; s.Bands[4].Enabled = true; s.Bands[4].GainDb = 6;
+    var processor = new DspProcessor(48000, 1, s);
+    var tone = Tone(1500, .02); double source = Rms(tone); processor.Process(tone, 0, tone.Length);
+    Near(20 * Math.Log10(Rms(tone) / source), 0, .01, "Initial EQ response");
+    s.EqEnabled = false; processor.UpdateSettings(s);
+    tone = Tone(1500, .02); processor.Process(tone, 0, tone.Length);
+    Near(20 * Math.Log10(Rms(tone) / source), -6, .01, "Master off response");
+    Near(DspProcessor.EqResponseDb(s, 1500), 0, 0, "Master off curve");
+    s.EqEnabled = true; processor.UpdateSettings(s);
+    tone = Tone(1500, .02); processor.Process(tone, 0, tone.Length);
+    Near(20 * Math.Log10(Rms(tone) / source), 0, .01, "Master on response");
+});
+Test("Gain updates preserve an in-progress EQ crossfade", () =>
+{
+    var s = Flat(); s.Bands[1].Enabled = true;
+    var processor = new DspProcessor(48000, 1, s);
+    var warmup = Enumerable.Repeat(.02f, 24000).ToArray(); processor.Process(warmup, 0, warmup.Length);
+    s.Bands[1].GainDb = 12; processor.UpdateSettings(s);
+    var beginning = Enumerable.Repeat(.02f, 120).ToArray(); processor.Process(beginning, 0, beginning.Length);
+    s.OutputGainDb = -3; processor.UpdateSettings(s);
+    var rest = Enumerable.Repeat(.02f, 1000).ToArray(); processor.Process(rest, 0, rest.Length);
+    Require(Math.Abs(rest[0] - beginning[^1]) < .001, "Gain update restarted or discarded EQ fade");
+    Require(rest.All(float.IsFinite), "Fade unstable");
+});
+Test("Frequent live updates allocate no new spectral or spatial audio buffers", () =>
+{
+    var s = Flat(); s.Denoise.Enabled = true; s.Creative.DelayEnabled = true; s.Creative.DelayMs = 1000; s.Creative.ReverbEnabled = true;
+    var processor = new DspProcessor(192000, 4, s);
+    processor.UpdateSettings(s); processor.Process([], 0, 0);
+    long before = GC.GetAllocatedBytesForCurrentThread();
+    const int updates = 30;
+    for (int i = 0; i < updates; i++)
+    {
+        s.InputGainDb = i % 12; processor.UpdateSettings(s); processor.Process([], 0, 0);
+    }
+    long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+    Require(allocated < updates * 128 * 1024, "Large buffers allocated per live update: " + allocated);
+});
 Test("Settings update retains pending creative echo history", () =>
 {
     var s = Flat(); s.Creative.DelayEnabled = true; s.Creative.DelayMs = 100; s.Creative.DelayMix = .5; s.Creative.DelayFeedback = 0;
     var processor = new DspProcessor(48000, 1, s); var first = new float[1000]; first[0] = .2f; processor.Process(first, 0, first.Length);
     processor.UpdateSettings(s); var rest = new float[5000]; processor.Process(rest, 0, rest.Length);
     Near(rest[3800], .1, .00001, "Echo discarded by settings update");
+});
+Test("Changing delay length reads existing ring history without dropping the echo", () =>
+{
+    var s = Flat(); s.Creative.DelayEnabled = true; s.Creative.DelayMs = 100; s.Creative.DelayMix = .5; s.Creative.DelayFeedback = 0;
+    var processor = new DspProcessor(48000, 1, s); var first = new float[1000]; first[0] = .2f; processor.Process(first, 0, first.Length);
+    s.Creative.DelayMs = 200; processor.UpdateSettings(s);
+    var rest = new float[10000]; processor.Process(rest, 0, rest.Length);
+    Near(rest[8600], .1, .00001, "Delay history lost when length changes");
+    Require(rest.Count(v => v != 0) == 1, "Unexpected stale delay samples");
+});
+Test("Re-enabling creative effects does not replay stale audio history", () =>
+{
+    var s = Flat(); s.Creative.DelayEnabled = s.Creative.ReverbEnabled = true;
+    var processor = new DspProcessor(48000, 1, s); var first = new float[1000]; first[0] = .2f; processor.Process(first, 0, first.Length);
+    s.Creative.DelayEnabled = s.Creative.ReverbEnabled = false; processor.UpdateSettings(s);
+    var gap = new float[1000]; processor.Process(gap, 0, gap.Length);
+    s.Creative.DelayEnabled = s.Creative.ReverbEnabled = true; processor.UpdateSettings(s);
+    var rest = new float[48000]; processor.Process(rest, 0, rest.Length);
+    Require(rest.All(v => v == 0), "Creative history survived disabling and leaked after re-enabling");
 });
 Test("Explicit Reset discards audio history", () =>
 {

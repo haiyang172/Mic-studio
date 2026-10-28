@@ -14,12 +14,12 @@
     <WrapPanel VerticalAlignment="Center">
      <StackPanel Margin="0,0,12,8"><TextBlock Text="输入设备" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,5"/><ComboBox x:Name="InputPicker" Width="310" DisplayMemberPath="DisplayName" ToolTip="按端点 ID 保存。"/></StackPanel>
      <StackPanel Margin="0,0,12,8"><TextBlock Text="处理方式" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,5"/><ComboBox x:Name="ModePicker" Width="174"><ComboBoxItem Content="系统输入 · APO"/><ComboBoxItem Content="虚拟输入 · CABLE"/></ComboBox></StackPanel>
-     <StackPanel Margin="0,0,0,8"><TextBlock Text="效果" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,5"/><Button x:Name="BypassButton" Content="旁路：关" Padding="13,8" Margin="0" ToolTip="只改变草稿，点击应用生效；旁路不是静音。"/></StackPanel>
+     <StackPanel Margin="0,0,0,8"><TextBlock Text="效果" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,5"/><Button x:Name="BypassButton" Content="效果开关：开" Padding="13,8" Margin="0" ToolTip="控制增益、EQ 和声音效果；与麦克风静音分开。"/></StackPanel>
     </WrapPanel>
    </Border>
    <Border Grid.Row="1" Background="{DynamicResource NoticeBg}" x:Name="NoticeBar" Visibility="Collapsed" Padding="24,10"><DockPanel><Button DockPanel.Dock="Right" Content="×" Padding="8,0" Margin="8,0,0,0" Click="DismissNotice"/><TextBlock x:Name="NoticeText" Foreground="{DynamicResource Accent}"/></DockPanel></Border>
    <ScrollViewer Grid.Row="2" x:Name="PageScroll" Padding="28,24,24,24"><StackPanel x:Name="PageContent"/></ScrollViewer>
-   <Border Grid.Row="3" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="22,10" Background="{DynamicResource SidebarBg}"><WrapPanel><TextBlock x:Name="CaptureFooter" Text="未运行" Foreground="{DynamicResource SidebarInk}" FontSize="12" Margin="0,0,22,2"/><TextBlock x:Name="ConfigFooter" Text="未应用" Foreground="{DynamicResource SidebarInk}" FontSize="12" Margin="0,0,22,2"/><TextBlock x:Name="DiscordFooter" Visibility="Collapsed"/></WrapPanel></Border>
+   <Border Grid.Row="3" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="22,10" Background="{DynamicResource SidebarBg}"><WrapPanel><TextBlock x:Name="CaptureFooter" Text="已停止" Foreground="{DynamicResource SidebarInk}" FontSize="12" Margin="0,0,22,2"/><TextBlock x:Name="ConfigFooter" Text="设置已就绪" Foreground="{DynamicResource SidebarInk}" FontSize="12" Margin="0,0,22,2"/><TextBlock x:Name="DiscordFooter" Visibility="Collapsed"/></WrapPanel></Border>
   </Grid>
  </Grid>
 </Window>

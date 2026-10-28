@@ -37,6 +37,12 @@ if (args.Contains("--cable-smoke"))
     return;
 }
 
+if (args.Contains("--live-update-smoke"))
+{
+    LiveUpdateSmoke();
+    return;
+}
+
 if (!args.Contains("--devices")) RunSyntheticTests();
 if (args.Contains("--tests-only")) return;
 using (var devices = new AudioDeviceService())
@@ -159,6 +165,18 @@ static void RunSyntheticTests()
         Parallel.For(0, 8, _ => engine.Dispose());
         Assert(!engine.IsRunning && !engine.IsRecording && !engine.IsPlaying);
     });
+    Test("Live update never activates stopped or stale audio sessions", () =>
+    {
+        using var devices = new AudioDeviceService();
+        using var engine = new AudioEngine(devices);
+        var oldSession = engine.SessionId;
+        Assert(!engine.TryUpdateSettings(NoEqSettings(), oldSession));
+        engine.Stop();
+        Assert(!engine.TryUpdateSettings(NoEqSettings(), oldSession));
+        engine.UpdateSettings(NoEqSettings());
+        Throws<ArgumentNullException>(() => engine.TryUpdateSettings(null!, engine.SessionId));
+        Assert(!engine.IsRunning && !engine.IsRecording && !engine.IsPlaying);
+    });
     Test("Endpoint cable direction is explicit", () =>
     {
         Assert(AudioDeviceService.IsCableInput("CABLE Input (VB-Audio Virtual Cable)"));
@@ -171,7 +189,7 @@ static void RunSyntheticTests()
         var input = Path.Combine(directory, "source.wav");
         CreateSyntheticWav(input);
         var original = System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(input));
-        var settings = new AudioSettings();
+        var settings = NoEqSettings();
         settings.Bands[4].Enabled = true; settings.Bands[4].FrequencyHz = 1000; settings.Bands[4].GainDb = 8;
         var result = OfflineAudioProcessor.ProcessFile(input, Path.Combine(directory, "wet.wav"), settings);
         var reference = ReadFloatFile(result.ReferencePath); var wet = ReadFloatFile(result.ProcessedPath);
@@ -185,41 +203,62 @@ static void RunSyntheticTests()
     Test("Offline unnormalized DSP gain changes the real WAV", () => WithSyntheticDirectory(directory =>
     {
         var input = Path.Combine(directory, "source.wav"); CreateSyntheticWav(input);
-        var result = OfflineAudioProcessor.ProcessFile(input, Path.Combine(directory, "wet.wav"), new() { InputGainDb = -6 }, false);
+        var settings = NoEqSettings(); settings.InputGainDb = -6;
+        var result = OfflineAudioProcessor.ProcessFile(input, Path.Combine(directory, "wet.wav"), settings, false);
         Assert(!result.LoudnessMatched && Math.Abs(result.ProcessedRmsDb - result.ReferenceRmsDb + 6) < 0.001);
     }));
     Test("Offline denoise delay is compensated without length mismatch", () => WithSyntheticDirectory(directory =>
     {
         var input = Path.Combine(directory, "source.wav"); CreateSyntheticWav(input);
-        var settings = new AudioSettings(); settings.Denoise.Enabled = true;
+        var settings = NoEqSettings(); settings.Denoise.Enabled = true;
         var result = OfflineAudioProcessor.ProcessFile(input, Path.Combine(directory, "wet.wav"), settings);
         Assert(result.AlgorithmLatencySamples == 512 && ReadFloatFile(result.ReferencePath).Length == ReadFloatFile(result.ProcessedPath).Length);
     }));
+    foreach (var rate in new[] { 8000, 16000 })
+        Test($"Offline default EQ processes {rate} Hz WAV without changing saved settings", () => WithSyntheticDirectory(directory =>
+        {
+            var input = Path.Combine(directory, "source.wav"); CreateSyntheticWav(input, sampleRate: rate);
+            var original = System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(input));
+            var settings = new AudioSettings();
+            var originalSettings = JsonSerializer.Serialize(settings, JsonDefaults.Options);
+            var result = rate == 8000
+                ? OfflineAudioProcessor.ProcessFile(input, Path.Combine(directory, "wet.wav"), settings)
+                : OfflineAudioProcessor.ProcessFileAsync(input, Path.Combine(directory, "wet.wav"), settings).GetAwaiter().GetResult();
+            var reference = ReadFloatFile(result.ReferencePath); var wet = ReadFloatFile(result.ProcessedPath);
+            using var output = new WaveFileReader(result.ProcessedPath);
+            Assert(result.SampleRate == rate && output.WaveFormat.SampleRate == rate && result.Channels == 1);
+            Assert(reference.Length == rate && wet.Length == rate && wet.All(float.IsFinite));
+            Assert(result.Duration == TimeSpan.FromSeconds(1) && result.ProcessedRmsDb > -60 && result.ProcessedPeakDb <= -0.999);
+            Assert(result.Warning.Contains("低通", StringComparison.Ordinal) && result.Warning.Contains("原设置未修改", StringComparison.Ordinal));
+            Assert(rate != 8000 || result.Warning.Contains("高架", StringComparison.Ordinal));
+            Assert(JsonSerializer.Serialize(settings, JsonDefaults.Options) == originalSettings);
+            Assert(original.SequenceEqual(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(input))));
+        }));
     Test("Offline silence is finite and not falsely loudness-matched", () => WithSyntheticDirectory(directory =>
     {
         var input = Path.Combine(directory, "source.wav"); CreateSyntheticWav(input, amplitude: 0);
-        var result = OfflineAudioProcessor.ProcessFile(input, Path.Combine(directory, "wet.wav"), new());
+        var result = OfflineAudioProcessor.ProcessFile(input, Path.Combine(directory, "wet.wav"), NoEqSettings());
         Assert(!result.LoudnessMatched && result.ReferenceRmsDb == -160 && result.ProcessedRmsDb == -160);
     }));
     Test("Offline refuses overwrites and same source paths", () => WithSyntheticDirectory(directory =>
     {
         var input = Path.Combine(directory, "source.wav"); CreateSyntheticWav(input);
-        Throws<ArgumentException>(() => OfflineAudioProcessor.ProcessFile(input, input, new()));
+        Throws<ArgumentException>(() => OfflineAudioProcessor.ProcessFile(input, input, NoEqSettings()));
         var output = Path.Combine(directory, "existing.wav"); File.WriteAllText(output, "preserve");
-        Throws<IOException>(() => OfflineAudioProcessor.ProcessFile(input, output, new()));
+        Throws<IOException>(() => OfflineAudioProcessor.ProcessFile(input, output, NoEqSettings()));
         Assert(File.ReadAllText(output) == "preserve");
     }));
     Test("Offline enforces the 120-second limit", () => WithSyntheticDirectory(directory =>
     {
         var input = Path.Combine(directory, "source.wav"); CreateSyntheticWav(input, sampleRate: 8000, seconds: 121);
-        Throws<ArgumentException>(() => OfflineAudioProcessor.ProcessFile(input, Path.Combine(directory, "wet.wav"), new()));
+        Throws<ArgumentException>(() => OfflineAudioProcessor.ProcessFile(input, Path.Combine(directory, "wet.wav"), NoEqSettings()));
         Assert(!File.Exists(Path.Combine(directory, "wet.wav")));
     }));
     Test("Offline cancellation removes only generated temporary files", () => WithSyntheticDirectory(directory =>
     {
         var input = Path.Combine(directory, "source.wav"); CreateSyntheticWav(input);
         using var canceled = new CancellationTokenSource(); canceled.Cancel();
-        Throws<OperationCanceledException>(() => OfflineAudioProcessor.ProcessFile(input, Path.Combine(directory, "wet.wav"), new(), cancellationToken: canceled.Token));
+        Throws<OperationCanceledException>(() => OfflineAudioProcessor.ProcessFile(input, Path.Combine(directory, "wet.wav"), NoEqSettings(), cancellationToken: canceled.Token));
         Assert(Directory.GetFiles(directory).Length == 1 && File.Exists(input));
     }));
     Console.WriteLine($"PASS {count} WindowsAudio synthetic/idle tests. No microphone capture, recording, or playback was started.");
@@ -267,6 +306,103 @@ static void Throws<T>(Action action) where T : Exception
 {
     try { action(); } catch (T) { return; }
     throw new Exception($"Expected {typeof(T).Name}");
+}
+
+static AudioSettings NoEqSettings()
+{
+    var settings = new AudioSettings();
+    foreach (var band in settings.Bands) band.Enabled = false;
+    return settings;
+}
+
+static void LiveUpdateSmoke()
+{
+    using var devices = new AudioDeviceService();
+    var send = devices.EnumerateOutputs(false).FirstOrDefault(x => x.IsCableSend);
+    var receive = devices.EnumerateInputs(false).FirstOrDefault(x => x.IsCableReceive && send != null
+        && x.Name.Equals(send.Name.Replace("Input", "Output", StringComparison.OrdinalIgnoreCase), StringComparison.OrdinalIgnoreCase));
+    if (send == null || receive == null)
+        throw new InvalidOperationException("Matching CABLE Input/Output endpoints are required. No fallback device will be opened.");
+    Console.WriteLine("Live settings smoke: synthetic 997 Hz at -36 dBFS, virtual CABLE only. No physical microphone, speaker, monitor, or file is used.");
+    using var enumerator = new MMDeviceEnumerator();
+    using var output = enumerator.GetDevice(send.Id);
+    using var player = new WasapiOut(output, AudioClientShareMode.Shared, true, 40);
+    var mix = output.AudioClient.MixFormat;
+    player.Init(new ContinuousTone(mix.SampleRate, mix.Channels).ToWaveProvider());
+    using var engine = new AudioEngine(devices);
+    var readings = new System.Collections.Concurrent.ConcurrentQueue<AudioMeter>();
+    engine.MeterUpdated += (_, value) => readings.Enqueue(value);
+    var settings = NoEqSettings(); settings.Limiter.Enabled = false;
+    engine.Start(new() { InputDeviceId = receive.Id, ProcessLocally = true, Settings = settings });
+    var session = engine.SessionId;
+    try
+    {
+        player.Play();
+        WaitForResponse("baseline", 0);
+        settings.InputGainDb = -6;
+        Update(settings);
+        WaitForResponse("live input gain", -6);
+        settings.EqEnabled = true;
+        settings.Bands[4].Enabled = true;
+        settings.Bands[4].FrequencyHz = 997;
+        settings.Bands[4].GainDb = 6;
+        Update(settings);
+        WaitForResponse("live EQ gain", 0);
+        settings.EqEnabled = false;
+        Update(settings);
+        WaitForResponse("live EQ master off", -6);
+        Assert(!engine.TryUpdateSettings(settings, session - 1), "A stale session must reject its update.");
+        Assert(engine.IsRunning && engine.SessionId == session, "A stale update changed the running session.");
+        for (var revision = 0; revision < 60; revision++)
+        {
+            settings.InputGainDb = -12 + revision % 12;
+            Update(settings);
+        }
+        settings.InputGainDb = -3;
+        Update(settings);
+        WaitForResponse("latest of rapid serialized changes", -3);
+        Assert(!engine.IsRecording && !engine.IsPlaying && engine.OutputBufferResets == 0);
+        Console.WriteLine($"PASS live updates used one capture session ({session}) without restart, recording, or monitor.");
+    }
+    finally
+    {
+        engine.Stop();
+        player.Stop();
+    }
+    Assert(!engine.TryUpdateSettings(settings, session) && !engine.IsRunning,
+        "An update after stop must remain stopped.");
+
+    void Update(AudioSettings revision)
+    {
+        readings.Clear();
+        Assert(engine.TryUpdateSettings(revision, session), "The current session rejected a live update.");
+        Assert(engine.SessionId == session && engine.IsRunning, "Live settings restarted capture.");
+    }
+
+    void WaitForResponse(string label, double expectedDb)
+    {
+        var timeout = System.Diagnostics.Stopwatch.StartNew();
+        var stable = 0;
+        var measured = double.NaN;
+        while (timeout.Elapsed < TimeSpan.FromSeconds(3))
+        {
+            while (readings.TryDequeue(out var meter))
+            {
+                Assert(meter.SessionId == session && engine.SessionId == session && engine.IsRunning,
+                    "The live update changed the capture session.");
+                if (meter.InputRmsDb < -70) { stable = 0; continue; }
+                measured = meter.OutputRmsDb - meter.InputRmsDb;
+                stable = Math.Abs(measured - expectedDb) < 0.08 ? stable + 1 : 0;
+                if (stable >= 3)
+                {
+                    Console.WriteLine($"PASS {label}: {measured:F3} dB (expected {expectedDb:F1}); session unchanged.");
+                    return;
+                }
+            }
+            Thread.Sleep(20);
+        }
+        throw new Exception($"{label}: expected {expectedDb:F1} dB, measured {measured:F3} dB; no stable response in 3 seconds.");
+    }
 }
 
 static void CableSmoke()
@@ -326,7 +462,7 @@ static void CableSmoke()
         gainDifference = value.OutputPeakDb - value.InputPeakDb;
         if (Math.Abs(gainDifference + 6) < 0.05) measured.Set();
     };
-    var settings = new AudioSettings { InputGainDb = -6 };
+    var settings = NoEqSettings(); settings.InputGainDb = -6;
     settings.Limiter.Enabled = false;
     engine.Start(new() { InputDeviceId = receive.Id, ProcessLocally = true, Settings = settings });
     using var secondOutput = enumerator.GetDevice(send.Id);
@@ -369,6 +505,20 @@ sealed class Tone(int sampleRate, int channels) : ISampleProvider
         var frames = Math.Min(count / channels, sampleRate - _frame);
         for (var f = 0; f < frames; f++, _frame++)
             for (var c = 0; c < channels; c++) buffer[offset + f * channels + c] = (float)(0.01584893 * Math.Sin(2 * Math.PI * 997 * _frame / sampleRate));
+        return frames * channels;
+    }
+}
+
+sealed class ContinuousTone(int sampleRate, int channels) : ISampleProvider
+{
+    private long _frame;
+    public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
+    public int Read(float[] buffer, int offset, int count)
+    {
+        var frames = count / channels;
+        for (var f = 0; f < frames; f++, _frame++)
+            for (var c = 0; c < channels; c++)
+                buffer[offset + f * channels + c] = (float)(0.01584893 * Math.Sin(2 * Math.PI * 997 * _frame / sampleRate));
         return frames * channels;
     }
 }

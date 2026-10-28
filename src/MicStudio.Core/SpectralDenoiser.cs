@@ -24,6 +24,13 @@ internal sealed class SpectralDenoiser
         }
     }
 
+    public void Reset()
+    {
+        Array.Clear(input); Array.Clear(output); Array.Clear(spectrum);
+        Array.Fill(gains, 1);
+        cursor = sinceFrame = 0;
+    }
+
     public double Process(double sample, DenoiseSettings settings)
     {
         double result = output[cursor];

@@ -31,9 +31,10 @@ public static class BuiltInPresets
 
     private static List<SoundPreset> Create()
     {
-        var flat = new SoundPreset { Id = "flat", Name = "平直", Description = "从零开始塑造声音。所有 EQ 关闭，增益为 0 dB；线路模式保留最终限幅。", IsBuiltIn = true };
+        var flat = new SoundPreset { Id = "flat", Name = "平直", Description = "增益为 0 dB，EQ 总开关关闭；保留最终限幅。", IsBuiltIn = true };
+        flat.Settings.EqEnabled = false;
         var natural = new SoundPreset { Id = "natural", Name = "自然", Description = "轻微去除低频震动与浑浊，保留人声本来的质感。起始参数，需实录试听。", IsBuiltIn = true };
-        natural.Settings.Bands[0].Enabled = true;
+        natural.Settings.Bands[0].Enabled = true; natural.Settings.Bands[0].FrequencyHz = 80;
         natural.Settings.Bands[2].Enabled = true; natural.Settings.Bands[2].GainDb = -1.5; natural.Settings.Bands[2].Q = 0.8;
         natural.Settings.Bands[5].Enabled = true; natural.Settings.Bands[5].GainDb = 1.2; natural.Settings.Bands[5].Q = 0.8;
         var clear = new SoundPreset { Id = "clear", Name = "清晰", Description = "减少闷声，适度提升发音清晰度。不会自动提高麦克风输入增益。", IsBuiltIn = true };

@@ -23,7 +23,8 @@ public sealed class DspProcessor
     public void UpdateSettings(AudioSettings settings)
     {
         settings.Validate(sampleRate);
-        Interlocked.Exchange(ref pending, new State(settings.Clone(), sampleRate, channels));
+        // Only parameter/filter snapshots are prepared here. Streaming history is adopted on the audio thread.
+        Interlocked.Exchange(ref pending, new State(settings.Clone(), sampleRate, channels, initializeHistory: false));
     }
 
     public void Reset() => Interlocked.Exchange(ref pending, new State(state.Settings.Clone(), sampleRate, channels) { DiscardHistory = true });
@@ -92,7 +93,8 @@ public sealed class DspProcessor
                     if (config.Creative.RobotEnabled) sample *= Math.Sin(s.RobotPhase);
                     if (config.Creative.DelayEnabled)
                     {
-                        var delayed = s.Delay[c][s.DelayPosition];
+                        int read = (s.DelayPosition + s.Delay[c].Length - s.DelayFrames) % s.Delay[c].Length;
+                        var delayed = s.DelayWritten >= s.DelayFrames ? s.Delay[c][read] : 0;
                         s.Delay[c][s.DelayPosition] = sample + delayed * config.Creative.DelayFeedback;
                         sample = sample * (1 - config.Creative.DelayMix) + delayed * config.Creative.DelayMix;
                     }
@@ -103,7 +105,8 @@ public sealed class DspProcessor
                         {
                             var line = s.Reverb[c][comb];
                             int pos = s.ReverbPosition[comb];
-                            wet += line[pos]; line[pos] = sample + line[pos] * 0.72;
+                            double delayed = s.ReverbWritten >= line.Length ? line[pos] : 0;
+                            wet += delayed; line[pos] = sample + delayed * 0.72;
                         }
                         sample = sample * (1 - config.Creative.ReverbMix) + wet * 0.25 * config.Creative.ReverbMix;
                     }
@@ -117,9 +120,16 @@ public sealed class DspProcessor
                 else s.LimiterGain = 1;
                 for (int c = 0; c < channels; c++) s.Frame[c] *= s.LimiterGain;
                 s.RobotPhase = (s.RobotPhase + 2 * Math.PI * config.Creative.RobotFrequencyHz / sampleRate) % (2 * Math.PI);
-                if (config.Creative.DelayEnabled) s.DelayPosition = (s.DelayPosition + 1) % s.Delay[0].Length;
+                if (config.Creative.DelayEnabled)
+                {
+                    s.DelayPosition = (s.DelayPosition + 1) % s.Delay[0].Length;
+                    s.DelayWritten = Math.Min(s.DelayWritten + 1, s.Delay[0].Length);
+                }
                 if (config.Creative.ReverbEnabled)
+                {
                     for (int comb = 0; comb < 4; comb++) s.ReverbPosition[comb] = (s.ReverbPosition[comb] + 1) % s.Reverb[0][comb].Length;
+                    s.ReverbWritten = Math.Min(s.ReverbWritten + 1, s.MaxReverbFrames);
+                }
                 if (s.FilterFadeRemaining > 0 && --s.FilterFadeRemaining == 0) s.PreviousFilters = null;
             }
             for (int c = 0; c < channels; c++)
@@ -137,7 +147,7 @@ public sealed class DspProcessor
     /// <summary>Only the theoretical linear EQ response, without gains, dynamics or creative effects.</summary>
     public static double EqResponseDb(AudioSettings settings, double frequency, int sampleRate = 48000)
     {
-        if (settings.Bypass) return 0;
+        if (settings.Bypass || !settings.EqEnabled) return 0;
         double response = 0;
         foreach (var band in settings.Bands.Where(b => b.Enabled)) response += new Biquad(band, sampleRate).ResponseDb(frequency, sampleRate);
         return response;
@@ -148,27 +158,34 @@ public sealed class DspProcessor
         public AudioSettings Settings { get; }
         public Biquad[][] Filters { get; private set; }
         public Biquad[][]? PreviousFilters;
-        public SpectralDenoiser[] Denoisers { get; private set; }
+        public SpectralDenoiser[] Denoisers { get; private set; } = [];
         public double[] Frame { get; }
-        public double[][] Delay { get; private set; }
-        public double[][][] Reverb { get; private set; }
+        public double[][] Delay { get; private set; } = [];
+        public double[][][] Reverb { get; private set; } = [];
         public int[] ReverbPosition { get; } = new int[4];
-        public int DelayPosition, GateHold, FilterFadeRemaining;
+        public int DelayPosition, DelayWritten, ReverbWritten, GateHold, FilterFadeRemaining;
         public bool DiscardHistory;
         public double RobotPhase, Detector, GateDetector, GateGain = 1, LimiterGain = 1, CompressorGain = 1, InputGain, OutputGain;
         public readonly double TargetInputGain, TargetOutputGain, GainRamp, DynamicsRamp, CompAttack, CompRelease, GateAttack, GateRelease, GateDetectorRelease, LimiterRelease, Ceiling, Drive;
         public readonly int GateHoldFrames;
         public readonly int FilterFadeFrames;
+        public readonly int DelayFrames, MaxReverbFrames;
 
-        public State(AudioSettings settings, int sampleRate, int channels)
+        public State(AudioSettings settings, int sampleRate, int channels, bool initializeHistory = true)
         {
             Settings = settings;
-            Filters = Enumerable.Range(0, channels).Select(_ => settings.Bands.Where(b => b.Enabled).Select(b => new Biquad(b, sampleRate)).ToArray()).ToArray();
-            Denoisers = Enumerable.Range(0, channels).Select(_ => new SpectralDenoiser()).ToArray();
+            Filters = Enumerable.Range(0, channels).Select(_ => settings.Bands.Where(b => settings.EqEnabled && b.Enabled).Select(b => new Biquad(b, sampleRate)).ToArray()).ToArray();
             Frame = new double[channels];
-            Delay = Enumerable.Range(0, channels).Select(_ => new double[Math.Max(1, (int)(sampleRate * settings.Creative.DelayMs / 1000))]).ToArray();
+            DelayFrames = Math.Max(1, (int)(sampleRate * settings.Creative.DelayMs / 1000));
             double[] times = [0.0297, 0.0371, 0.0411, 0.0437];
-            Reverb = Enumerable.Range(0, channels).Select(_ => times.Select(t => new double[Math.Max(1, (int)(sampleRate * t))]).ToArray()).ToArray();
+            MaxReverbFrames = Math.Max(1, (int)(sampleRate * times[^1]));
+            if (initializeHistory)
+            {
+                Denoisers = Enumerable.Range(0, channels).Select(_ => new SpectralDenoiser()).ToArray();
+                // A fixed one-second ring supports every permitted delay without copying/allocating on parameter updates.
+                Delay = Enumerable.Range(0, channels).Select(_ => new double[sampleRate]).ToArray();
+                Reverb = Enumerable.Range(0, channels).Select(_ => times.Select(t => new double[Math.Max(1, (int)(sampleRate * t))]).ToArray()).ToArray();
+            }
             InputGain = TargetInputGain = DbToLinear(settings.InputGainDb); OutputGain = TargetOutputGain = DbToLinear(settings.OutputGainDb);
             GainRamp = Coefficient(5, sampleRate); DynamicsRamp = Coefficient(2, sampleRate); FilterFadeFrames = Math.Max(1, sampleRate / 100);
             CompAttack = Coefficient(settings.Compressor.AttackMs, sampleRate); CompRelease = Coefficient(settings.Compressor.ReleaseMs, sampleRate);
@@ -183,8 +200,10 @@ public sealed class DspProcessor
             Detector = previous.Detector; GateDetector = previous.GateDetector;
             GateGain = previous.GateGain; GateHold = Math.Min(previous.GateHold, GateHoldFrames);
             LimiterGain = previous.LimiterGain; CompressorGain = previous.CompressorGain; RobotPhase = previous.RobotPhase;
-            if (Settings.Denoise.Enabled && previous.Settings.Denoise.Enabled) Denoisers = previous.Denoisers;
-            bool sameFilters = true;
+            Denoisers = previous.Denoisers;
+            if (Settings.Denoise.Enabled && !previous.Settings.Denoise.Enabled)
+                foreach (var denoiser in Denoisers) denoiser.Reset();
+            bool sameFilters = Settings.EqEnabled == previous.Settings.EqEnabled;
             for (int i = 0; i < Settings.Bands.Count; i++)
             {
                 var a = Settings.Bands[i]; var b = previous.Settings.Bands[i];
@@ -197,21 +216,17 @@ public sealed class DspProcessor
                 PreviousFilters = previous.PreviousFilters; FilterFadeRemaining = previous.FilterFadeRemaining;
             }
             else { PreviousFilters = previous.Filters; FilterFadeRemaining = FilterFadeFrames; }
+            Delay = previous.Delay;
             if (Settings.Creative.DelayEnabled && previous.Settings.Creative.DelayEnabled)
             {
-                if (Delay[0].Length == previous.Delay[0].Length) { Delay = previous.Delay; DelayPosition = previous.DelayPosition; }
-                else
-                {
-                    int history = Math.Min(Delay[0].Length, previous.Delay[0].Length);
-                    for (int c = 0; c < channels; c++)
-                        for (int age = 1; age <= history; age++)
-                            Delay[c][(Delay[c].Length - age) % Delay[c].Length] = previous.Delay[c][(previous.DelayPosition + previous.Delay[c].Length - age) % previous.Delay[c].Length];
-                }
+                DelayPosition = previous.DelayPosition;
+                DelayWritten = previous.DelayWritten;
             }
+            Reverb = previous.Reverb;
             if (Settings.Creative.ReverbEnabled && previous.Settings.Creative.ReverbEnabled)
             {
-                Reverb = previous.Reverb;
                 Array.Copy(previous.ReverbPosition, ReverbPosition, ReverbPosition.Length);
+                ReverbWritten = previous.ReverbWritten;
             }
         }
 

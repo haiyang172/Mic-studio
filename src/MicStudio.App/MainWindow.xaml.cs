@@ -21,10 +21,12 @@ public partial class MainWindow : Window
     private ApoInstallation apo;
     private IReadOnlyList<AudioDeviceInfo> inputs = [], outputs = [];
     private readonly DispatcherTimer saveTimer = new() { Interval = TimeSpan.FromMilliseconds(600) };
+    private readonly DispatcherTimer liveTimer = new() { Interval = TimeSpan.FromMilliseconds(30) };
     private readonly DispatcherTimer calibrationTimer = new() { Interval = TimeSpan.FromSeconds(6) };
     private readonly List<double> calibrationPeaks = [];
     private readonly List<(TextBlock Text, ProgressBar Bar, bool Output)> meters = [];
     private readonly List<TextBlock> liveLabels = [];
+    private readonly List<Action> soundControlRefreshers = [];
     private readonly string[] pageNames = ["麦克风", "均衡器", "效果", "预设", "设备", "诊断", "设置"];
     private readonly string[] pageIcons = ["\uE80F", "\uE9E9", "\uE9D9", "\uE8D4", "\uE7F4", "\uE9D9", "\uE713"];
     private int currentPage;
@@ -39,11 +41,12 @@ public partial class MainWindow : Window
     private StackPanel? bandEditor;
     private WrapPanel? effectCards;
     private TextBlock? presetBadge;
+    private WpfButton? playerButton;
     private System.Windows.Forms.NotifyIcon? tray;
     private System.Drawing.Icon? trayIcon;
     private bool forceClose;
-    private string applyState = "未应用";
-    private static string ProductVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.1.1";
+    private string applyState = "设置已就绪";
+    private static string ProductVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.2.0";
 
     private Brush Ink => (Brush)FindResource("Ink");
     private Brush Muted => (Brush)FindResource("Muted");
@@ -51,7 +54,7 @@ public partial class MainWindow : Window
     private Brush Amber => (Brush)FindResource("Amber");
     private bool LocalMode => State.Mode == 1;
     private AudioDeviceInfo? SelectedInput => inputs.FirstOrDefault(d => d.Id == State.InputDeviceId);
-    private int SampleRate => SelectedInput?.SampleRate is > 0 ? SelectedInput.SampleRate : 48000;
+    private int SampleRate => engine is { IsRunning: true } && engine.SampleRate > 0 ? engine.SampleRate : SelectedInput?.SampleRate is > 0 ? SelectedInput.SampleRate : 48000;
 
     public MainWindow()
     {
@@ -64,6 +67,7 @@ public partial class MainWindow : Window
         applied = Draft.Clone();
         apo = ApoInstallation.Detect();
         if (vm.IsFirstRun && !apo.Found) State.Mode = 1;
+        if (!LocalMode) applyState = "APO 需在设备页更新";
         for (var i = 0; i < pageNames.Length; i++)
         {
             var page = i;
@@ -80,34 +84,31 @@ public partial class MainWindow : Window
         InputPicker.SelectionChanged += (_, _) =>
         {
             if (refreshing || InputPicker.SelectedItem is not AudioDeviceInfo item || item.Id == State.InputDeviceId) return;
-            StopAudio(); applyState = "未应用"; suggestedGain = null; State.InputDeviceId = item.Id; InvalidateDiscord(); SaveSoon(); ShowPage(currentPage);
+            StopAudio(); suggestedGain = null; State.InputDeviceId = item.Id; InvalidateDiscord(); SaveSoon(); ShowPage(currentPage);
         };
         ModePicker.SelectionChanged += (_, _) =>
         {
             if (ModePicker.SelectedIndex == State.Mode) return;
-            StopAudio(); applyState = "未应用"; suggestedGain = null; State.Mode = ModePicker.SelectedIndex; InvalidateDiscord(); SaveSoon(); ShowPage(currentPage);
+            StopAudio(); suggestedGain = null; State.Mode = ModePicker.SelectedIndex; applyState = LocalMode ? "设置已就绪" : "APO 需在设备页更新"; InvalidateDiscord(); SaveSoon(); ShowPage(currentPage);
         };
         BypassButton.Click += (_, _) => { vm.Change(s => s.Bypass = !s.Bypass); UpdateChrome(); };
-        vm.DraftChanged += (_, _) => { applyState = "待应用"; UpdateChrome(); curve?.InvalidateVisual(); SaveSoon(); };
-        saveTimer.Tick += (_, _) => { saveTimer.Stop(); try { vm.Save(); ConfigFooter.Text = applyState + " · 草稿已保存"; } catch (Exception ex) { Notice("保存失败：" + ex.Message); } };
+        vm.DraftChanged += (_, _) => OnSoundChanged();
+        liveTimer.Tick += (_, _) => FlushLiveSettings();
+        saveTimer.Tick += (_, _) => { saveTimer.Stop(); try { vm.Save(); UpdateChrome(); } catch (Exception ex) { Notice("保存失败：" + ex.Message); } };
         devices.DevicesChanged += (_, _) => Dispatcher.BeginInvoke(() => { if (!closed) { RefreshDevices(); if (currentPage is 4 or 5) ShowPage(currentPage); } });
         engine.MeterUpdated += (_, m) => Dispatcher.BeginInvoke(() => { if (!closed && engine.IsRunning && m.SessionId == engine.SessionId) UpdateMeters(m); });
         engine.StatusChanged += (_, status) => Dispatcher.BeginInvoke(() =>
         {
             if (closed || status.IsRunning != engine.IsRunning || status.SessionId != engine.SessionId) return;
-            CaptureFooter.Text = status.IsRunning ? "运行中" : "未运行";
-            CaptureFooter.Foreground = status.IsRunning ? Accent : (Brush)FindResource("SidebarInk");
             if (status.ErrorCode != null) Notice(status.Message + "  " + status.ErrorCode);
-            if (!status.IsRunning) { lastMeter = null; ClearMeters(); if (calibrating) { calibrating = false; calibrationTimer.Stop(); calibrationPeaks.Clear(); suggestedGain = null; } }
-            UpdateLiveLabels();
+            if (!status.IsRunning) { liveTimer.Stop(); applyState = LocalMode ? "设置已就绪" : "APO 需在设备页更新"; lastMeter = null; ClearMeters(); if (calibrating) { calibrating = false; calibrationTimer.Stop(); calibrationPeaks.Clear(); suggestedGain = null; } }
+            UpdateChrome(); UpdateLiveLabels();
         });
         engine.RecordingStopped += (_, r) => Dispatcher.BeginInvoke(() => { if (!closed) { Notice($"录音已保存在本机（{r.Duration.TotalSeconds:0.0} 秒），未上传。停止采集后可用耳机回放。"); UpdateLiveLabels(); } });
         calibrationTimer.Tick += (_, _) => CompleteCalibration();
         PreviewKeyDown += (_, e) =>
         {
             if ((Keyboard.Modifiers & ModifierKeys.Control) == 0 || Keyboard.FocusedElement is TextBox) return;
-            if (e.Key == Key.Z) { vm.Undo(); ShowPage(currentPage); e.Handled = true; }
-            if (e.Key == Key.Y) { vm.Redo(); ShowPage(currentPage); e.Handled = true; }
             if (e.Key == Key.S) { SavePreset(); e.Handled = true; }
         };
         SizeChanged += (_, _) => UpdateCompact();
@@ -115,7 +116,7 @@ public partial class MainWindow : Window
         Closing += (_, e) =>
         {
             if (State.MinimizeToTray && !forceClose) { e.Cancel = true; Hide(); EnsureTray(); return; }
-            closed = true; saveTimer.Stop(); calibrationTimer.Stop();
+            closed = true; saveTimer.Stop(); liveTimer.Stop(); calibrationTimer.Stop();
             lifetime.Cancel();
             try { vm.Save(); } catch { }
             engine.Dispose(); devices.Dispose(); tray?.ContextMenuStrip?.Dispose(); tray?.Dispose(); trayIcon?.Dispose(); driverManager.Dispose();
@@ -144,7 +145,7 @@ public partial class MainWindow : Window
 
     internal void ShowPage(int page)
     {
-        building = true; currentPage = page; curve = null; bandEditor = null; effectCards = null; meters.Clear(); liveLabels.Clear(); presetBadge = null;
+        building = true; currentPage = page; curve = null; bandEditor = null; effectCards = null; meters.Clear(); liveLabels.Clear(); soundControlRefreshers.Clear(); presetBadge = null; playerButton = null;
         PageContent.Children.Clear(); PageScroll.ScrollToTop();
         for (var i = 0; i < Navigation.Children.Count; i++)
         {
@@ -158,16 +159,27 @@ public partial class MainWindow : Window
 
     private void UpdateChrome()
     {
-        BypassButton.Content = Draft.Bypass ? "旁路：开" : "旁路：关";
+        BypassButton.Content = Draft.Bypass ? "效果开关：关" : "效果开关：开";
+        AutomationProperties.SetName(BypassButton, (string)BypassButton.Content);
         BypassButton.Foreground = Draft.Bypass ? Amber : Accent;
         ConfigFooter.Text = applyState;
+        CaptureFooter.Text = engine.IsRunning ? (LocalMode ? "●  处理中" : "●  测量中") : SelectedInput is { IsActive: true } ? "已停止" : "设备不可用";
+        CaptureFooter.Foreground = engine.IsRunning ? Accent : (Brush)FindResource("SidebarInk");
+        if (playerButton != null)
+        {
+            playerButton.Content = engine.IsRunning ? "■  停止" : LocalMode ? "▶  开始处理" : "▶  开始测量";
+            AutomationProperties.SetName(playerButton, engine.IsRunning ? "停止" : LocalMode ? "开始处理" : "开始测量");
+            playerButton.IsEnabled = engine.IsRunning || SelectedInput is { IsActive: true };
+        }
         DiscordFooter.Text = State.DiscordVerifiedAt is { } time ? "Discord 人工确认 · " + time.ToLocalTime().ToString("MM-dd HH:mm") : "Discord 待验证";
         DiscordFooter.Foreground = State.DiscordVerifiedAt is null ? Amber : Accent;
         if (presetBadge != null)
         {
-            var p = AllPresets().FirstOrDefault(x => x.Id == State.SelectedPresetId);
-            presetBadge.Text = (p?.Name ?? "自定义") + (p is not null && JsonSerializer.Serialize(p.Settings, JsonDefaults.Options) == vm.DraftJson ? "" : "  ·  未另存");
+            presetBadge.Text = "当前预设：" + CurrentPresetName();
         }
+        var wasBuilding = building; building = true;
+        try { foreach (var refresh in soundControlRefreshers.ToArray()) refresh(); }
+        finally { building = wasBuilding; }
     }
     private void SaveSoon() { saveTimer.Stop(); saveTimer.Start(); }
     private void InvalidateDiscord() { State.DiscordVerifiedAt = null; UpdateChrome(); }
@@ -176,8 +188,9 @@ public partial class MainWindow : Window
     private void Safe(Action action) { try { action(); } catch (Exception ex) { Notice(ex.Message); } }
     private void StopAudio()
     {
+        liveTimer.Stop();
         calibrating = false; calibrationTimer.Stop();
-        engine.Stop(); engine.StopPlayback(); lastMeter = null; ClearMeters(); UpdateLiveLabels();
+        engine.Stop(); engine.StopPlayback(); lastMeter = null; ClearMeters(); applyState = LocalMode ? "设置已就绪" : "APO 需在设备页更新"; UpdateChrome(); UpdateLiveLabels();
     }
 
     private void RefreshDevices(bool initial = false)
@@ -207,7 +220,7 @@ public partial class MainWindow : Window
         Safe(() =>
         {
             if (SelectedInput is not { IsActive: true } input) throw new InvalidOperationException("请选择已连接的麦克风；不会自动改用其他设备。");
-            Draft.Validate(SampleRate);
+            var snapshot = Draft.CreateProcessingSnapshot(SampleRate, out var adjusted);
             if (LocalMode && apo.Found)
             {
                 // Known own hook could run twice. Refuse instead of asserting an unverified raw capture path.
@@ -218,8 +231,10 @@ public partial class MainWindow : Window
             if (cable && !LocalMode) throw new InvalidOperationException("发送虚拟线路需切换到本地 DSP 路线。");
             if (cable && (!outputs.Any(d => d.Id == State.CableOutputId && d.IsActive && d.IsCableSend) || !inputs.Any(d => d.IsActive && d.IsCableReceive)))
                 throw new InvalidOperationException("VB-CABLE 的发送端或接收端未就绪。请在连接页选择 CABLE Input，并确认 CABLE Output 已连接。");
-            engine.Start(new CaptureOptions { InputDeviceId = input.Id, ProcessLocally = LocalMode, Settings = Draft.Clone(), CableOutputDeviceId = cable ? State.CableOutputId : null, MonitorOutputDeviceId = monitor ? monitorId : null, MonitorConfirmedHeadphones = headphones });
-            applied = Draft.Clone(); applyState = LocalMode ? "已应用" : "APO 待验证"; UpdateChrome();
+            liveTimer.Stop();
+            engine.Start(new CaptureOptions { InputDeviceId = input.Id, ProcessLocally = LocalMode, Settings = snapshot, CableOutputDeviceId = cable ? State.CableOutputId : null, MonitorOutputDeviceId = monitor ? monitorId : null, MonitorConfirmedHeadphones = headphones });
+            applied = snapshot; applyState = LocalMode ? "实时调音" : "APO 音频待验证"; UpdateChrome();
+            if (adjusted.Count > 0) Notice("已按当前设备采样率适配 EQ：" + string.Join("、", adjusted) + "。原预设参数已保留。");
         });
     }
 
@@ -227,15 +242,11 @@ public partial class MainWindow : Window
     {
         Safe(() =>
         {
-            Draft.Validate(SampleRate);
             if (LocalMode)
             {
-                if (engine.IsRunning) engine.UpdateSettings(Draft.Clone());
-                applied = Draft.Clone(); applyState = engine.IsRunning ? "已应用" : "已保存";
-            Notice(engine.IsRunning ? "已应用。" : "已保存，点击开始运行。");
-                SaveSoon(); UpdateChrome(); return;
+                FlushLiveSettings(); SaveSoon(); return;
             }
-            var eqOnly = Draft.Clone();
+            var eqOnly = Draft.CreateProcessingSnapshot(SampleRate, out _);
             var excluded = ApoConfigGenerator.GetUnsupportedEffects(eqOnly);
             eqOnly.Denoise.Enabled = eqOnly.Compressor.Enabled = eqOnly.Gate.Enabled = eqOnly.Limiter.Enabled = false;
             eqOnly.Creative.SaturationEnabled = eqOnly.Creative.DelayEnabled = eqOnly.Creative.ReverbEnabled = eqOnly.Creative.RobotEnabled = false;
@@ -258,9 +269,7 @@ public partial class MainWindow : Window
         if (apply)
         {
             var row = new WrapPanel();
-            row.Children.Add(B("应用", ApplyDraft, true));
-            row.Children.Add(B("撤销", () => { vm.Undo(); ShowPage(currentPage); }));
-            row.Children.Add(B("重做", () => { vm.Redo(); ShowPage(currentPage); }));
+            row.Children.Add(B("恢复默认", RestoreDefaults));
             presetBadge = T("", 12, Muted, margin: new(8, 0, 0, 8)); row.Children.Add(presetBadge);
             Add(row);
         }
@@ -284,47 +293,66 @@ public partial class MainWindow : Window
     private Border Card(string title, string? description, params UIElement[] children)
     {
         var panel = new StackPanel(); panel.Children.Add(T(title, 15, weight: FontWeights.SemiBold));
-        if (currentPage == 2 && children.Length > 2)
-        {
-            panel.Children.Add(children[0]); var parameters = new StackPanel(); foreach (var child in children.Skip(1)) parameters.Children.Add(child);
-            panel.Children.Add(new Expander { Header = "参数", Foreground = Ink, Content = parameters, Margin = new(0, 6, 0, 0) });
-        }
-        else foreach (var child in children) panel.Children.Add(child);
+        foreach (var child in children) panel.Children.Add(child);
         return new Border { Background = (Brush)FindResource("Panel"), BorderBrush = (Brush)FindResource("Line"), BorderThickness = new(1), CornerRadius = new(9), Padding = new(18), Margin = new(0, 0, 0, 12), Child = panel, ToolTip = description };
     }
     private WrapPanel Buttons(params WpfButton[] buttons) { var p = new WrapPanel(); foreach (var b in buttons) p.Children.Add(b); return p; }
+    private WpfButton ButtonSwitch(string label, bool value, Action<bool> changed, bool enabled = true, Func<bool>? readValue = null)
+    {
+        var current = value;
+        var button = B(label + (current ? "：开" : "：关"), () => { });
+        button.IsEnabled = enabled;
+        void Update() { current = readValue?.Invoke() ?? current; button.Content = label + (current ? "：开" : "：关"); button.Foreground = current ? Accent : Muted; AutomationProperties.SetName(button, (string)button.Content); }
+        button.Click += (_, _) => Safe(() => { if (building) return; var next = !(readValue?.Invoke() ?? current); changed(next); current = next; Update(); });
+        if (readValue != null) RegisterSoundControl(button, Update);
+        Update(); return button;
+    }
     private CheckBox Toggle(string label, bool value, Action<bool> changed, bool enabled = true)
     {
         var c = new CheckBox { Content = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap }, IsChecked = value, IsEnabled = enabled };
         c.Click += (_, _) => { if (!building) changed(c.IsChecked == true); }; return c;
     }
-    private StackPanel Parameter(string label, double min, double max, double value, Action<double> set, string unit = "", double step = 0.1, bool enabled = true)
+    private StackPanel Parameter(string label, double min, double max, double value, Action<double> set, string unit = "", double step = 0.1, bool enabled = true, Func<double>? readValue = null)
     {
         var p = new StackPanel { Margin = new(0, 2, 0, 12), IsEnabled = enabled };
+        string Format(double number) => number.ToString(unit == "%" ? "0" : "0.##", CultureInfo.CurrentCulture);
         var grid = new Grid(); grid.ColumnDefinitions.Add(new()); grid.ColumnDefinitions.Add(new() { Width = new(93) });
         grid.Children.Add(T(label + (unit.Length > 0 ? " / " + unit : ""), 12, Muted, margin: new(0)));
-        var box = new TextBox { Text = value.ToString("0.##", CultureInfo.CurrentCulture), HorizontalContentAlignment = HorizontalAlignment.Right, MinWidth = 78 };
+        var box = new TextBox { Text = Format(value), HorizontalContentAlignment = HorizontalAlignment.Right, MinWidth = 78 };
         AutomationProperties.SetName(box, label + "数值"); Grid.SetColumn(box, 1); grid.Children.Add(box); p.Children.Add(grid);
         var slider = new Slider { Minimum = min, Maximum = max, Value = Math.Clamp(value, min, max), SmallChange = step, LargeChange = step * 10 };
         AutomationProperties.SetName(slider, label);
         var sync = false;
         var committed = value;
+        var displayed = box.Text;
         slider.ValueChanged += (_, _) =>
         {
             if (sync || building) return;
             var v = Math.Round(slider.Value / step) * step; v = Math.Clamp(v, min, max);
-            box.Text = v.ToString("0.##", CultureInfo.CurrentCulture); if (Math.Abs(v - committed) > 0.000001) { committed = v; set(v); }
+            displayed = Format(v); box.Text = displayed; if (Math.Abs(v - committed) > 0.000001) { committed = v; set(v); }
         };
         void Commit()
         {
-            if (building) return;
+            if (building || box.Text == displayed) return;
             if (double.TryParse(box.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var v) && double.IsFinite(v) && v >= min && v <= max)
-            { sync = true; slider.Value = v; sync = false; if (Math.Abs(v - committed) > 0.000001) { committed = v; set(v); } box.BorderBrush = (Brush)FindResource("Line"); }
+            { sync = true; slider.Value = v; sync = false; if (Math.Abs(v - committed) > 0.000001) { committed = v; set(v); } displayed = box.Text; box.BorderBrush = (Brush)FindResource("Line"); }
             else { box.BorderBrush = Amber; Notice($"{label}请输入 {min} 至 {max} 的有效数值。"); }
         }
         box.LostKeyboardFocus += (_, _) => Commit();
         box.KeyDown += (_, e) => { if (e.Key == Key.Enter) { Commit(); e.Handled = true; } };
+        if (readValue != null) RegisterSoundControl(p, () =>
+        {
+            var latest = readValue();
+            if (Math.Abs(latest - committed) < .000001) return;
+            sync = true; committed = latest; slider.Value = Math.Clamp(latest, min, max); displayed = Format(latest); box.Text = displayed; sync = false;
+        });
         p.Children.Add(slider); return p;
+    }
+    private void RegisterSoundControl(FrameworkElement element, Action refresh)
+    {
+        soundControlRefreshers.Add(refresh);
+        element.Loaded += (_, _) => { if (!soundControlRefreshers.Contains(refresh)) soundControlRefreshers.Add(refresh); };
+        element.Unloaded += (_, _) => soundControlRefreshers.Remove(refresh);
     }
     private void ShowTextDialog(string title, string text, string? actionText = null, Action? action = null)
     {

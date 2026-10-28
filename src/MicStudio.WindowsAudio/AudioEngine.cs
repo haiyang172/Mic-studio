@@ -149,7 +149,28 @@ public sealed class AudioEngine : IDisposable
 
     public void UpdateSettings(AudioSettings settings)
     {
-        lock (_data) _dsp?.UpdateSettings(settings);
+        TryUpdateSettings(settings, SessionId);
+    }
+
+    /// <summary>
+    /// Prepares a live update outside the capture lock and applies it only to the
+    /// selected running DSP session. A stopped/replaced session is never restarted.
+    /// The caller should serialize UI revisions and treat false as not applied.
+    /// </summary>
+    public bool TryUpdateSettings(AudioSettings settings, int expectedSessionId)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        DspProcessor processor;
+        lock (_data)
+        {
+            if (!_running || _session != expectedSessionId || _dsp is null) return false;
+            processor = _dsp;
+        }
+        // Validation/immutable state preparation can allocate. Do not make the
+        // device callback wait for it while it is holding the shared data lock.
+        processor.UpdateSettings(settings);
+        lock (_data)
+            return _running && _session == expectedSessionId && ReferenceEquals(_dsp, processor);
     }
 
     private void OnDataAvailable(object? sender, WaveInEventArgs e)

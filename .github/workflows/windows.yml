@@ -21,6 +21,9 @@ jobs:
       - name: Verify DSP, APO, WASAPI, bundled component and setup without installing drivers
         shell: pwsh
         run: ./scripts/Test.ps1
+      - name: Verify isolated native controls and responsive layouts without opening audio
+        shell: pwsh
+        run: ./scripts/Test-UI.ps1
       - name: Publish portable Windows x64 application
         shell: pwsh
         run: ./scripts/Publish.ps1 -SkipTests
@@ -31,5 +34,7 @@ jobs:
             dist/MicStudio-win-x64.zip
             dist/MicStudio.Setup.exe
             dist/SHA256SUMS.txt
+            artifacts/p1-ui/control-events.json
+            artifacts/p1-ui/layout-report.json
           if-no-files-found: error
           retention-days: 14
