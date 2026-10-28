@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "vbCable": {
+    "packageName": "VBCABLE_Driver_Pack45.zip",
+    "packageVersion": "Pack45 (October 2024)",
+    "url": "https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack45.zip",
+    "origin": "https://vb-cable.com/",
+    "licenseUrl": "https://vb-audio.com/Services/licensing.htm",
+    "reviewedOn": "2026-10-28",
+    "sha256": "b950e39f01af1d04ea623c8f6d8eb9b6ea5c477c637295fabf20631c85116bfb",
+    "bytes": 1318877,
+    "installerX64": {
+      "file": "VBCABLE_Setup_x64.exe",
+      "version": "2.1.5.8",
+      "sha256": "734c35dfa6d98f48782a451633ceb471166ec70d60482fd89a1123d0ee3c4f41",
+      "authenticodeStatusAtReview": "Valid",
+      "signer": "BUREL VINCENT Entrepreneur individuel",
+      "signerThumbprintAtReview": "A77952D93229D0EC36E2543081EEA7D125732B9C"
+    }
+  }
+}
