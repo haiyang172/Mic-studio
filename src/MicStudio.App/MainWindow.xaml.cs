@@ -236,7 +236,7 @@ public partial class MainWindow : Window
             if (cable)
             {
                 var route = SelectCableRoute();
-                if (!route.IsReady) throw new InvalidOperationException(route.Message);
+                if (!route.IsReady) { cableConnectionWarning = route.Message; throw new InvalidOperationException(route.Message); }
             }
             liveTimer.Stop();
             engine.Start(new CaptureOptions { InputDeviceId = input.Id, ProcessLocally = LocalMode, Settings = snapshot, CableOutputDeviceId = cable ? State.CableOutputId : null, MonitorOutputDeviceId = monitor ? monitorId : null, MonitorConfirmedHeadphones = headphones });

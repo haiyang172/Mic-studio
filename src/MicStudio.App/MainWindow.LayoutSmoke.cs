@@ -126,9 +126,10 @@ public partial class MainWindow
         Check(resolvedRoute.IsReady && State.CableOutputId == "test-send" && State.InputDeviceId == savedMic && !engine.IsRunning, "Auto connection repairs stale cable ID without changing or opening microphone");
         inputs = []; resolvedRoute = SelectCableRoute();
         Check(!resolvedRoute.IsReady && State.CableOutputId == "test-send" && !engine.IsRunning, "Absent receiver keeps saved route without capture-only fallback");
+        cableConnectionWarning = resolvedRoute.Message; Notice(cableConnectionWarning);
         inputs = [new("test-receive-new", "CABLE Output (VB-Audio Virtual Cable)", "Active", false, false, false, true, 48000, 2)];
         outputs = [new("test-send-new", "CABLE Input (VB-Audio Virtual Cable)", "Active", false, false, true, false, 48000, 2)];
-        Check(SelectCableRoute().IsReady && State.CableOutputId == "test-send-new" && !engine.IsRunning, "New endpoints are automatically matched after reappearance");
+        Check(SelectCableRoute().IsReady && State.CableOutputId == "test-send-new" && !engine.IsRunning && NoticeBar.Visibility == Visibility.Collapsed, "New endpoints are automatically matched and old warning cleared after reappearance");
         inputs = realInputs; outputs = realOutputs; State.CableOutputId = savedCable;
         State.InputDeviceId = "missing-explicit-microphone"; StartAudio(true); State.InputDeviceId = savedMic; RefreshDevices();
         Check(!engine.IsRunning, "Automatic cable connection cannot substitute an unavailable selected microphone");

@@ -5,9 +5,15 @@ namespace MicStudio.App;
 public partial class MainWindow
 {
     private string? activeCableSendId;
+    private string? cableConnectionWarning;
     private CableRouteSelection SelectCableRoute()
     {
         var route = CableRouteResolver.Resolve(inputs, outputs, State.CableOutputId);
+        if (route.IsReady && cableConnectionWarning != null)
+        {
+            if (NoticeText.Text == cableConnectionWarning) NoticeBar.Visibility = Visibility.Collapsed;
+            cableConnectionWarning = null;
+        }
         if (route.IsReady && State.CableOutputId != route.Send!.Id)
         {
             if (engine.IsRunning && activeCableSendId != null && activeCableSendId != route.Send.Id)
