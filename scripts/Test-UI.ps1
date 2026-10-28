@@ -16,6 +16,6 @@ if ($process.ExitCode -ne 0) {
 }
 $controls = Get-Content -LiteralPath (Join-Path $report 'control-events.json') -Raw | ConvertFrom-Json
 $layout = Get-Content -LiteralPath (Join-Path $report 'layout-report.json') -Raw | ConvertFrom-Json
-if ($controls.Passed -lt 29 -or $controls.Passed -ne $controls.Checks.Count -or $layout.Results.Count -ne 27 -or
+if ($controls.Passed -lt 32 -or $controls.Passed -ne $controls.Checks.Count -or $layout.Results.Count -ne 27 -or
     @($layout.Results | Where-Object { $_.RightOverflow -or !$_.ScrollReachable }).Count -ne 0) { throw 'UI verification report is incomplete.' }
 Write-Output ("UI verified: {0} control checks, {1} layouts; no audio opened; isolated workspace only." -f $controls.Passed, $layout.Results.Count)

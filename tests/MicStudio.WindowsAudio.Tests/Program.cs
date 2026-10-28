@@ -43,6 +43,16 @@ if (args.Contains("--live-update-smoke"))
     return;
 }
 
+if (args.Contains("--resolve-cable"))
+{
+    using var devices = new AudioDeviceService();
+    var route = CableRouteResolver.Resolve(devices.EnumerateInputs(), devices.EnumerateOutputs(), "expired-diagnostic-id");
+    Console.WriteLine(JsonSerializer.Serialize(new { route.IsReady, route.Status, route.Message,
+        StaleIdRepaired = route.IsReady && route.Send!.Id != "expired-diagnostic-id", Capturing = false, SettingsWritten = false }));
+    if (!route.IsReady) Environment.ExitCode = 1;
+    return;
+}
+
 if (!args.Contains("--devices")) RunSyntheticTests();
 if (args.Contains("--tests-only")) return;
 using (var devices = new AudioDeviceService())
@@ -184,6 +194,77 @@ static void RunSyntheticTests()
         Assert(AudioDeviceService.IsCableOutput("CABLE Output (VB-Audio Virtual Cable)"));
         Assert(AudioDeviceService.IsVirtualCableEndpoint("CABLE In 16ch (VB-Audio Virtual Cable)"));
     });
+    Test("Cable auto route selects a standard matching pair without audio activation", () =>
+    {
+        var route = CableRouteResolver.Resolve([CableEndpoint("receive", "CABLE Output (VB-Audio Virtual Cable)", false)],
+            [CableEndpoint("send", "CABLE Input (VB-Audio Virtual Cable)", true)]);
+        Assert(route.IsReady && route.Send!.Id == "send" && route.Receive!.Id == "receive");
+    });
+    Test("Cable auto route preserves a valid saved non-default pair", () =>
+    {
+        var route = CableRouteResolver.Resolve(
+            [CableEndpoint("r", "CABLE Output", false), CableEndpoint("ra", "CABLE-A Output", false)],
+            [CableEndpoint("s", "CABLE Input", true), CableEndpoint("sa", "CABLE-A Input", true)], "sa");
+        Assert(route.IsReady && route.Send!.Id == "sa" && route.Receive!.Id == "ra");
+    });
+    Test("Cable auto route replaces stale IDs and ignores enumeration order", () =>
+    {
+        var inputs = new[] { CableEndpoint("rb", "CABLE-B Output", false), CableEndpoint("ra", "CABLE-A Output", false), CableEndpoint("r", "CABLE Output", false) };
+        var outputs = new[] { CableEndpoint("sb", "CABLE-B Input", true), CableEndpoint("sa", "CABLE-A Input", true), CableEndpoint("s", "CABLE Input", true) };
+        var route = CableRouteResolver.Resolve(inputs, outputs, "removed-id");
+        var reversed = CableRouteResolver.Resolve(inputs.Reverse().ToArray(), outputs.Reverse().ToArray(), "removed-id");
+        Assert(route.Send!.Id == "s" && route.Receive!.Id == "r" && route == reversed);
+    });
+    Test("Cable auto route ignores unavailable saved send and unmatched preferred pair", () =>
+    {
+        var inputs = new[] { CableEndpoint("r", "CABLE Output", false), CableEndpoint("rb", "CABLE-B Output", false) };
+        var outputs = new[] { CableEndpoint("s", "CABLE Input", true), CableEndpoint("sa", "CABLE-A Input", true), CableEndpoint("sb", "CABLE-B Input", true, "Unplugged") };
+        Assert(CableRouteResolver.Resolve(inputs, outputs, "sb").Send!.Id == "s");
+        Assert(CableRouteResolver.Resolve(inputs, outputs, "sa").Send!.Id == "s");
+    });
+    Test("Cable auto route never crosses cable families or channel labels", () =>
+    {
+        var crossed = CableRouteResolver.Resolve([CableEndpoint("ra", "CABLE-A Output", false)], [CableEndpoint("sb", "CABLE-B Input", true)]);
+        var channels = CableRouteResolver.Resolve([CableEndpoint("r", "CABLE Output", false)], [CableEndpoint("s16", "CABLE In 16ch", true)]);
+        Assert(crossed.Status == CableRouteStatus.UnmatchedEndpoints && !crossed.IsReady && channels.Status == CableRouteStatus.UnmatchedEndpoints);
+    });
+    Test("Cable auto route excludes physical devices and inconsistent direction flags", () =>
+    {
+        var physical = new AudioDeviceInfo("physical", "CABLE Input", "Active", true, true, false, false, 48000, 2);
+        var wrongDirection = CableEndpoint("wrong", "CABLE Output", true);
+        var route = CableRouteResolver.Resolve([CableEndpoint("r", "CABLE Output", false)], [physical, wrongDirection]);
+        Assert(!route.IsReady && route.Status == CableRouteStatus.SendUnavailable && route.Send is null && route.Receive is null);
+    });
+    Test("Cable auto route reports missing inactive and unmatched endpoints distinctly", () =>
+    {
+        Assert(CableRouteResolver.Resolve([], []).Status == CableRouteStatus.NotDetected);
+        Assert(CableRouteResolver.Resolve([CableEndpoint("r", "CABLE Output", false)], [CableEndpoint("s", "CABLE Input", true, "Disabled")]).Status == CableRouteStatus.SendUnavailable);
+        Assert(CableRouteResolver.Resolve([CableEndpoint("r", "CABLE Output", false, "NotPresent")], [CableEndpoint("s", "CABLE Input", true)]).Status == CableRouteStatus.ReceiveUnavailable);
+    });
+    Test("Cable auto route handles C D and 16-channel names without substring replacement", () =>
+    {
+        var route = CableRouteResolver.Resolve([CableEndpoint("rd", "  cable-d OUT 16ch (Input word in driver description)", false)],
+            [CableEndpoint("sd", "CABLE-D In 16ch (Output word in driver description)", true)]);
+        Assert(route.IsReady && route.Send!.Id == "sd" && route.Receive!.Id == "rd");
+        Assert(CableRouteResolver.IsSendName("CABLE-C Input (VB-Audio Cable C)") && CableRouteResolver.IsReceiveName("CABLE-C Output (VB-Audio Cable C)"));
+    });
+    Test("Cable name parser rejects misleading partial labels", () =>
+    {
+        foreach (var name in new[] { "Virtual CABLE Input", "CABLE InputPlus", "CABLE-AA Input", "CABLE Input_fake", "Speakers", "CABLE Out 16channels" })
+            Assert(!CableRouteResolver.IsSendName(name) && !CableRouteResolver.IsReceiveName(name));
+    });
+    Test("Cable auto route does not guess across duplicate receive endpoints", () =>
+    {
+        var route = CableRouteResolver.Resolve([CableEndpoint("r1", "CABLE Output", false), CableEndpoint("r2", "CABLE Output", false)],
+            [CableEndpoint("s", "CABLE Input", true)], "s");
+        Assert(!route.IsReady && route.Status == CableRouteStatus.AmbiguousEndpoints);
+    });
+    Test("Cable auto route chooses a complete fallback over an ambiguous family", () =>
+    {
+        var route = CableRouteResolver.Resolve([CableEndpoint("r1", "CABLE Output", false), CableEndpoint("r2", "CABLE Output", false), CableEndpoint("ra", "CABLE-A Output", false)],
+            [CableEndpoint("s", "CABLE Input", true), CableEndpoint("sa", "CABLE-A Input", true)]);
+        Assert(route.IsReady && route.Send!.Id == "sa" && route.Receive!.Id == "ra");
+    });
     Test("Offline same-source RMS match writes distinct files and preserves source", () => WithSyntheticDirectory(directory =>
     {
         var input = Path.Combine(directory, "source.wav");
@@ -265,6 +346,9 @@ static void RunSyntheticTests()
 
     void Test(string name, Action body) { body(); count++; Console.WriteLine($"PASS {name}"); }
 }
+
+static AudioDeviceInfo CableEndpoint(string id, string name, bool send, string state = "Active") =>
+    new(id, name, state, false, false, send, !send, 48000, 2);
 
 static void WithSyntheticDirectory(Action<string> body)
 {

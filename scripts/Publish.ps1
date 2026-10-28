@@ -1,5 +1,6 @@
 [CmdletBinding()]
-param([ValidateSet('Debug', 'Release')][string]$Configuration = 'Release', [switch]$SkipTests)
+param([ValidateSet('Debug', 'Release')][string]$Configuration = 'Release', [switch]$SkipTests,
+    [ValidatePattern('^MicStudio-(?:[0-9]+\.[0-9]+\.[0-9]+-)?win-x64$')][string]$PortableFolderName = 'MicStudio-win-x64')
 $ErrorActionPreference = 'Stop'
 $workspace = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $localSdk = Join-Path $workspace '.tools\dotnet\dotnet.exe'
@@ -10,11 +11,12 @@ else {
     $dotnet = $installed.Source
 }
 $dist = [IO.Path]::GetFullPath((Join-Path $workspace 'dist'))
-$published = [IO.Path]::GetFullPath((Join-Path $dist 'MicStudio-win-x64'))
+$published = [IO.Path]::GetFullPath((Join-Path $dist $PortableFolderName))
 $zip = Join-Path $dist 'MicStudio-win-x64.zip'
-# Deletion is limited to this fixed generated directory, checked in this shell.
-if (!$published.StartsWith($workspace.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) -or
-    $published -ne (Join-Path $workspace 'dist\MicStudio-win-x64') -or
+# Deletion is limited to this validated generated leaf inside dist, checked in this shell.
+# A versioned leaf lets a new build coexist with a running portable application.
+if (!$published.StartsWith($dist.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) -or
+    $published -ne (Join-Path $dist $PortableFolderName) -or
     !(Test-Path -LiteralPath (Join-Path $workspace 'src\MicStudio.App\MicStudio.App.csproj'))) { throw 'Unexpected publishing workspace.' }
 foreach ($candidate in @($dist, $published)) {
     if (Test-Path -LiteralPath $candidate) {

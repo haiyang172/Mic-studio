@@ -46,7 +46,7 @@ public partial class MainWindow : Window
     private System.Drawing.Icon? trayIcon;
     private bool forceClose;
     private string applyState = "设置已就绪";
-    private static string ProductVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.2.0";
+    private static string ProductVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.2.1";
 
     private Brush Ink => (Brush)FindResource("Ink");
     private Brush Muted => (Brush)FindResource("Muted");
@@ -101,7 +101,7 @@ public partial class MainWindow : Window
         {
             if (closed || status.IsRunning != engine.IsRunning || status.SessionId != engine.SessionId) return;
             if (status.ErrorCode != null) Notice(status.Message + "  " + status.ErrorCode);
-            if (!status.IsRunning) { liveTimer.Stop(); applyState = LocalMode ? "设置已就绪" : "APO 需在设备页更新"; lastMeter = null; ClearMeters(); if (calibrating) { calibrating = false; calibrationTimer.Stop(); calibrationPeaks.Clear(); suggestedGain = null; } }
+            if (!status.IsRunning) { activeCableSendId = null; liveTimer.Stop(); applyState = LocalMode ? "设置已就绪" : "APO 需在设备页更新"; lastMeter = null; ClearMeters(); if (calibrating) { calibrating = false; calibrationTimer.Stop(); calibrationPeaks.Clear(); suggestedGain = null; } }
             UpdateChrome(); UpdateLiveLabels();
         });
         engine.RecordingStopped += (_, r) => Dispatcher.BeginInvoke(() => { if (!closed) { Notice($"录音已保存在本机（{r.Duration.TotalSeconds:0.0} 秒），未上传。停止采集后可用耳机回放。"); UpdateLiveLabels(); } });
@@ -188,6 +188,7 @@ public partial class MainWindow : Window
     private void Safe(Action action) { try { action(); } catch (Exception ex) { Notice(ex.Message); } }
     private void StopAudio()
     {
+        activeCableSendId = null;
         liveTimer.Stop();
         calibrating = false; calibrationTimer.Stop();
         engine.Stop(); engine.StopPlayback(); lastMeter = null; ClearMeters(); applyState = LocalMode ? "设置已就绪" : "APO 需在设备页更新"; UpdateChrome(); UpdateLiveLabels();
@@ -209,7 +210,7 @@ public partial class MainWindow : Window
                 list.Add(new(State.InputDeviceId, "已保存的麦克风 · 设备已断开", "Disconnected", false, false, false, false, 0, 0));
             InputPicker.ItemsSource = list;
             InputPicker.SelectedItem = list.FirstOrDefault(x => x.Id == State.InputDeviceId);
-            if (State.CableOutputId is null) State.CableOutputId = outputs.FirstOrDefault(d => d.IsActive && d.IsCableSend)?.Id;
+            SelectCableRoute();
         }
         catch (Exception ex) { Notice($"设备枚举失败：{ex.Message}（0x{ex.HResult:X8}）。可在连接页检查 Windows 麦克风访问设置。管理员权限并非唯一原因。"); }
         finally { refreshing = false; }
@@ -219,6 +220,9 @@ public partial class MainWindow : Window
     {
         Safe(() =>
         {
+            // A driver reinstall can recreate endpoint IDs while the app is open.
+            // Resolve the current pair before a user starts, not just at first launch.
+            if (cable) RefreshDevices();
             if (SelectedInput is not { IsActive: true } input) throw new InvalidOperationException("请选择已连接的麦克风；不会自动改用其他设备。");
             var snapshot = Draft.CreateProcessingSnapshot(SampleRate, out var adjusted);
             if (LocalMode && apo.Found)
@@ -229,10 +233,14 @@ public partial class MainWindow : Window
                     throw new InvalidOperationException("检测到 Mic Studio 系统 APO 挂接。请先在连接页移除自有挂接，再使用本地 DSP，避免重复处理。其他 APO 效果也需自行检查。");
             }
             if (cable && !LocalMode) throw new InvalidOperationException("发送虚拟线路需切换到本地 DSP 路线。");
-            if (cable && (!outputs.Any(d => d.Id == State.CableOutputId && d.IsActive && d.IsCableSend) || !inputs.Any(d => d.IsActive && d.IsCableReceive)))
-                throw new InvalidOperationException("VB-CABLE 的发送端或接收端未就绪。请在连接页选择 CABLE Input，并确认 CABLE Output 已连接。");
+            if (cable)
+            {
+                var route = SelectCableRoute();
+                if (!route.IsReady) throw new InvalidOperationException(route.Message);
+            }
             liveTimer.Stop();
             engine.Start(new CaptureOptions { InputDeviceId = input.Id, ProcessLocally = LocalMode, Settings = snapshot, CableOutputDeviceId = cable ? State.CableOutputId : null, MonitorOutputDeviceId = monitor ? monitorId : null, MonitorConfirmedHeadphones = headphones });
+            activeCableSendId = cable ? State.CableOutputId : null;
             applied = snapshot; applyState = LocalMode ? "实时调音" : "APO 音频待验证"; UpdateChrome();
             if (adjusted.Count > 0) Notice("已按当前设备采样率适配 EQ：" + string.Join("、", adjusted) + "。原预设参数已保留。");
         });

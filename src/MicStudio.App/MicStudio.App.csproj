@@ -2,7 +2,7 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>MicStudio</AssemblyName><RootNamespace>MicStudio.App</RootNamespace><ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.2.0</Version><Description>Mic Studio native Windows microphone workstation</Description><ImplicitUsings>disable</ImplicitUsings>
+    <Version>0.2.1</Version><Description>Mic Studio native Windows microphone workstation</Description><ImplicitUsings>disable</ImplicitUsings>
     <ApplicationIcon>../../assets/branding/mic-studio.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../MicStudio.Core/MicStudio.Core.csproj"/><ProjectReference Include="../MicStudio.Apo/MicStudio.Apo.csproj"/><ProjectReference Include="../MicStudio.WindowsAudio/MicStudio.WindowsAudio.csproj"/><ProjectReference Include="../MicStudio.Components/MicStudio.Components.csproj"/></ItemGroup>
