@@ -1,10 +1,10 @@
-<Window x:Class="MicStudio.App.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Mic Studio" Width="1280" Height="820" MinWidth="540" MinHeight="420" WindowStartupLocation="CenterScreen" Background="{DynamicResource Bg}" Foreground="{DynamicResource Ink}" FontFamily="Microsoft YaHei UI, Segoe UI" FontSize="13" UseLayoutRounding="True">
+<Window x:Class="MicStudio.App.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Mic Studio" Icon="Assets/mic-studio.ico" Width="1280" Height="820" MinWidth="540" MinHeight="420" WindowStartupLocation="CenterScreen" Background="{DynamicResource Bg}" Foreground="{DynamicResource Ink}" FontFamily="Microsoft YaHei UI, Segoe UI" FontSize="13" UseLayoutRounding="True">
  <Grid Background="{DynamicResource Bg}">
   <Grid.ColumnDefinitions><ColumnDefinition x:Name="NavColumn" Width="190"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
   <Border Background="{DynamicResource SidebarBg}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,1,0">
    <DockPanel>
-    <StackPanel DockPanel.Dock="Top" Margin="22,25,12,25"><TextBlock x:Name="Brand" Text="Mic Studio" FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"/><TextBlock x:Name="BrandCaption" Visibility="Collapsed"/></StackPanel>
-    <StackPanel DockPanel.Dock="Bottom" Margin="20,18"><TextBlock x:Name="SideCaption" Visibility="Collapsed"/><TextBlock x:Name="SideVersion" Text="0.1" FontSize="11" Foreground="{DynamicResource SidebarInk}"/></StackPanel>
+    <StackPanel x:Name="BrandHeader" DockPanel.Dock="Top" Orientation="Horizontal" Margin="18,24,14,24"><Image x:Name="BrandIcon" Source="Assets/mic-studio.png" Width="32" Height="32" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" ToolTip="Mic Studio"/><StackPanel x:Name="BrandText" Margin="10,0,0,0" VerticalAlignment="Center"><TextBlock x:Name="Brand" Text="Mic Studio" FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"/><TextBlock x:Name="BrandCaption" Visibility="Collapsed"/></StackPanel></StackPanel>
+    <StackPanel DockPanel.Dock="Bottom" Margin="20,18"><TextBlock x:Name="SideCaption" Visibility="Collapsed"/><TextBlock x:Name="SideVersion" Text="0.1.1" FontSize="11" Foreground="{DynamicResource SidebarInk}"/></StackPanel>
     <StackPanel x:Name="Navigation"/>
    </DockPanel>
   </Border>

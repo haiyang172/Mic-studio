@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="Mic Studio MS monogram">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#27383D"/>
+      <stop offset="1" stop-color="#101B20"/>
+    </linearGradient>
+    <linearGradient id="mint" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#A4F5D9"/>
+      <stop offset="1" stop-color="#52D6AF"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="54" fill="url(#tile)"/>
+  <rect x="9" y="9" width="238" height="238" rx="53" fill="none" stroke="#49605F" stroke-width="1.5"/>
+  <path id="ms" d="M 48,166 L 48,88 Q 48,82 53,88 L 79,119 Q 83,124 87,118 L 112,86 Q 117,80 117,88 L 117,153 C 117,170 138,178 160,172 C 186,165 192,145 170,134 L 146,123 C 123,112 130,84 154,80 C 172,77 189,83 198,94" fill="none" stroke="url(#mint)" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+  <path id="stand" data-detail="true" d="M 128,176 L 128,198 M 109,198 L 147,198" fill="none" stroke="#72E6BF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

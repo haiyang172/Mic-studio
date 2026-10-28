@@ -14,6 +14,7 @@ public sealed record PayloadInspection(bool PayloadPresent, int Files, long Unco
 
 public static class InstallerEngine
 {
+    public static string ProductVersion => typeof(InstallerEngine).Assembly.GetName().Version?.ToString(3) ?? "0.1.1";
     private const string Product = "MicStudio.Next";
     private const string Marker = ".micstudio-install.json";
     private const string RegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\MicStudio.Next";
@@ -150,7 +151,7 @@ public static class InstallerEngine
         using var key = Registry.CurrentUser.CreateSubKey(RegistryPath);
         if (key.GetValue("MicStudioProduct") is string product && product != Product) throw new InvalidOperationException("卸载登记已由其他产品占用。");
         key.SetValue("MicStudioProduct", Product);
-        key.SetValue("DisplayName", "Mic Studio"); key.SetValue("DisplayVersion", "0.1.0");
+        key.SetValue("DisplayName", "Mic Studio"); key.SetValue("DisplayVersion", ProductVersion);
         key.SetValue("Publisher", "Mic Studio"); key.SetValue("InstallLocation", InstallDirectory);
         key.SetValue("DisplayIcon", AppExecutable);
         key.SetValue("UninstallString", "\"" + SetupExecutable + "\" --uninstall");
@@ -158,7 +159,7 @@ public static class InstallerEngine
     }
 
     private static void WriteOwnership(string directory, bool desktop, List<InstalledFile> files) => File.WriteAllText(Path.Combine(directory, Marker),
-        JsonSerializer.Serialize(new Ownership(Product, 2, "0.1.0", desktop, DateTime.UtcNow, files), new JsonSerializerOptions { WriteIndented = true }));
+        JsonSerializer.Serialize(new Ownership(Product, 2, ProductVersion, desktop, DateTime.UtcNow, files), new JsonSerializerOptions { WriteIndented = true }));
 
     private static List<InstalledFile> BuildManifest(ZipArchive archive, string setupSource)
     {
