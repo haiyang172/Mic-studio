@@ -18,4 +18,7 @@
 
 详细记录：[P3/P5 验证](validation/p3-p5.md)。真实语音、安装/升级/卸载和 DPI 仍需人工验收。
 
+- `MicStudio-win-x64.zip` SHA-256：`8765fc5749bba701287ff0a9789573be46d298c3aca8ba98ec82cb827eaec434`
+- `MicStudio.Setup.exe` SHA-256：`cdd8ddf0d0d2a213d58c7e0f39c862ae8a0699cd6cc33ff790dbb3db0ca36ce7`
+
 下载 `MicStudio.Setup.exe` 或 `MicStudio-win-x64.zip`。覆盖安装保留个人设置、主题、录音和独立 VB-CABLE 驱动。
