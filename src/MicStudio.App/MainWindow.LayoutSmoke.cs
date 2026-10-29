@@ -94,11 +94,7 @@ public partial class MainWindow
         Inspect(ConfigFooter.Text, "config footer");
         foreach (System.Windows.Controls.Button button in Navigation.Children)
             if (button.Content is StackPanel panel && panel.Children.Count > 1 && panel.Children[1] is TextBlock label) Inspect(label.Text, "navigation");
-        if (ModePicker.Items.Count >= 2)
-        {
-            Inspect((ModePicker.Items[0] as ComboBoxItem)?.Content as string, "mode item 0");
-            Inspect((ModePicker.Items[1] as ComboBoxItem)?.Content as string, "mode item 1");
-        }
+        for (var index = 0; index < ModePicker.Items.Count; index++) Inspect((ModePicker.Items[index] as ComboBoxItem)?.Content as string, "mode item " + index);
         if (NoticeBar.Visibility == Visibility.Visible) Inspect(NoticeText.Text, "notice");
 
         Width = 1280; Height = 820;
@@ -245,6 +241,19 @@ public partial class MainWindow
         State.Presets.Remove(personal); RestoreDefaults(); ShowPage(0); NoticeBar.Visibility = Visibility.Collapsed;
 
         Check(State.MinimizeToTray && State.SchemaVersion == WorkspaceState.CurrentSchemaVersion, "New workspace closes to tray by default");
+        ShowPage(4); UpdateLayout();
+        var echoBefore = State.EchoCancellationEnabled;
+        var echoButton = Descendants<System.Windows.Controls.Button>(PageContent).Single(b => (b.Content as string)?.StartsWith("外放回声消除：") == true);
+        echoButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+        Check(State.EchoCancellationEnabled != echoBefore && !engine.IsRunning, "Echo preference changes without starting capture or playback reference");
+        echoButton = Descendants<System.Windows.Controls.Button>(PageContent).Single(b => (b.Content as string)?.StartsWith("外放回声消除：") == true);
+        echoButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); vm.Save();
+        Check(new StudioViewModel().State.EchoCancellationEnabled == echoBefore, "Echo preference persists independently of sound presets");
+        var nativeWorkspace = new WorkspaceState { Mode = 2 }; nativeWorkspace.Normalize();
+        Check(nativeWorkspace.Mode == 2, "Workspace accepts the explicit native APO preview mode");
+        ModePicker.SelectedIndex = 2; StartAudio();
+        Check(!engine.IsRunning && nativeWriter == null && !nativeLeaseTimer.IsEnabled, "Unavailable or untrusted native APO cannot open audio or claim an active controller");
+        ModePicker.SelectedIndex = 1; NoticeBar.Visibility = Visibility.Collapsed;
         var legacy = new WorkspaceState { SchemaVersion = 1, MinimizeToTray = false, Language = "xx-XX" };
         legacy.Normalize();
         Check(legacy.SchemaVersion == 2 && legacy.MinimizeToTray && legacy.Language == UiText.Chinese, "P1 workspace migrates to tray default and a supported language");

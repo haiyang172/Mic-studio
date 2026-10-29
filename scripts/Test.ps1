@@ -14,6 +14,7 @@ $projects = @(
     'tests\MicStudio.Apo.Tests\MicStudio.Apo.Tests.csproj',
     'tests\MicStudio.WindowsAudio.Tests\MicStudio.WindowsAudio.Tests.csproj',
     'tests\MicStudio.Components.Tests\MicStudio.Components.Tests.csproj'
+    'tests\MicStudio.NativeApo.Tests\MicStudio.NativeApo.Tests.csproj'
 )
 Push-Location $workspace
 try {

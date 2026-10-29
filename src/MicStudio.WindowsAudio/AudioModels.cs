@@ -10,6 +10,9 @@ public sealed class CaptureOptions
     public string? CableOutputDeviceId { get; init; }
     public string? MonitorOutputDeviceId { get; init; }
     public bool MonitorConfirmedHeadphones { get; init; }
+    public bool FeedbackProtectionEnabled { get; init; } = true;
+    public bool EchoCancellationEnabled { get; init; }
+    public string? EchoReferenceOutputDeviceId { get; init; }
 }
 
 public sealed record AudioMeter(double InputPeakDb, double InputRmsDb, double OutputPeakDb, double OutputRmsDb,
@@ -17,3 +20,4 @@ public sealed record AudioMeter(double InputPeakDb, double InputRmsDb, double Ou
 public sealed record AudioEngineStatus(bool IsRunning, string Message, string? ErrorCode = null, int SessionId = -1);
 public sealed record RecordingResult(string Path, TimeSpan Duration, string Reason, bool CapturedBeforeLocalDsp = false);
 public sealed record VolumeInfo(double Scalar, bool Muted, float MinDb, float MaxDb, float StepDb, double LevelDb);
+public sealed record FeedbackProtectionEvent(int SessionId, double FrequencyHz, double PeakDb);

@@ -27,4 +27,9 @@ internal sealed class BoundedRenderBuffer
         }
         Provider.AddSamples(bytes, 0, count);
     }
+    public void Clear()
+    {
+        if (Provider.BufferedBytes == 0) return;
+        Provider.ClearBuffer(); _onReset();
+    }
 }

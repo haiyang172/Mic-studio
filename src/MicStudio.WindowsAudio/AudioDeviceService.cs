@@ -90,10 +90,8 @@ public sealed class AudioDeviceService : IDisposable, IMMNotificationClient
         catch (System.Runtime.InteropServices.COMException) { return null; }
     }
 
-    public static bool IsCableInput(string name) => name.Contains("CABLE Input", StringComparison.OrdinalIgnoreCase)
-        || name.Contains("CABLE-A Input", StringComparison.OrdinalIgnoreCase) || name.Contains("CABLE-B Input", StringComparison.OrdinalIgnoreCase);
-    public static bool IsCableOutput(string name) => name.Contains("CABLE Output", StringComparison.OrdinalIgnoreCase)
-        || name.Contains("CABLE-A Output", StringComparison.OrdinalIgnoreCase) || name.Contains("CABLE-B Output", StringComparison.OrdinalIgnoreCase);
+    public static bool IsCableInput(string name) => CableRouteResolver.IsSendName(name);
+    public static bool IsCableOutput(string name) => CableRouteResolver.IsReceiveName(name);
     public static bool IsVirtualCableEndpoint(string name) => IsCableInput(name) || IsCableOutput(name)
         || name.Contains("VB-Audio", StringComparison.OrdinalIgnoreCase)
         || name.Contains("CABLE In", StringComparison.OrdinalIgnoreCase)

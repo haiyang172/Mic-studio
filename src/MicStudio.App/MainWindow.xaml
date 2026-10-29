@@ -13,7 +13,7 @@
    <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="24,15,16,7">
     <WrapPanel VerticalAlignment="Center">
      <StackPanel Margin="0,0,12,8"><TextBlock x:Name="InputDeviceLabel" Text="输入设备" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,5"/><ComboBox x:Name="InputPicker" Width="310" DisplayMemberPath="DisplayName" ToolTip="按端点 ID 保存。"/></StackPanel>
-     <StackPanel Margin="0,0,12,8"><TextBlock x:Name="ModeLabel" Text="处理方式" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,5"/><ComboBox x:Name="ModePicker" Width="174"><ComboBoxItem Content="系统输入 · APO"/><ComboBoxItem Content="虚拟输入 · CABLE"/></ComboBox></StackPanel>
+     <StackPanel Margin="0,0,12,8"><TextBlock x:Name="ModeLabel" Text="处理方式" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,5"/><ComboBox x:Name="ModePicker" Width="174"><ComboBoxItem Content="系统输入 · APO"/><ComboBoxItem Content="虚拟输入 · CABLE"/><ComboBoxItem Content="自研 APO（预览）"/></ComboBox></StackPanel>
      <StackPanel Margin="0,0,0,8"><TextBlock x:Name="EffectLabel" Text="效果" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,5"/><Button x:Name="BypassButton" Content="效果开关：开" Padding="13,8" Margin="0" ToolTip="控制增益、EQ 和声音效果；与麦克风静音分开。"/></StackPanel>
     </WrapPanel>
    </Border>

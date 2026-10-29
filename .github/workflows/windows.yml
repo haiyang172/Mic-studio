@@ -8,19 +8,28 @@ permissions:
   contents: read
 jobs:
   windows:
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.403'
+      - name: Build native APO and playback-reference echo processor; run offline tests
+        shell: pwsh
+        run: ./scripts/Build-NativeCpp.ps1
       - name: Build native app, audio modules, components, setup and verification projects
         shell: pwsh
         run: ./scripts/Build.ps1
+      - name: Stage native libraries without installing or registering components
+        shell: pwsh
+        run: ./scripts/Stage-NativeRuntime.ps1
       - name: Verify DSP, APO, WASAPI, bundled component and setup without installing drivers
         shell: pwsh
         run: ./scripts/Test.ps1
+      - name: Verify managed/native echo interop with synthetic signals only
+        shell: pwsh
+        run: dotnet run --project tests/MicStudio.WindowsAudio.Tests -c Release --no-build --no-restore -- --echo-native-tests
       - name: Verify isolated native controls and responsive layouts without opening audio
         shell: pwsh
         run: ./scripts/Test-UI.ps1
@@ -34,7 +43,19 @@ jobs:
             dist/MicStudio-win-x64.zip
             dist/MicStudio.Setup.exe
             dist/SHA256SUMS.txt
-            artifacts/p1-ui/control-events.json
-            artifacts/p1-ui/layout-report.json
           if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: MicStudio-native-x64
+          path: artifacts/native/bin/*
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: MicStudio-validation
+          path: artifacts/p2-ui/*.json
+          if-no-files-found: warn
           retention-days: 14
