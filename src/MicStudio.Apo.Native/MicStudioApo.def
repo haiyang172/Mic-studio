@@ -1,0 +1,4 @@
+LIBRARY MicStudioApo
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE
