@@ -14,7 +14,7 @@ public sealed record PayloadInspection(bool PayloadPresent, int Files, long Unco
 
 public static class InstallerEngine
 {
-    public static string ProductVersion => typeof(InstallerEngine).Assembly.GetName().Version?.ToString(3) ?? "0.4.0";
+    public static string ProductVersion => typeof(InstallerEngine).Assembly.GetName().Version?.ToString(3) ?? "0.4.1";
     private const string Product = "MicStudio.Next";
     private const string Marker = ".micstudio-install.json";
     private const string RegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\MicStudio.Next";
