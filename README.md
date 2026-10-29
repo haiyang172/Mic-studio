@@ -49,9 +49,11 @@ Equalizer APO 不属于 VB-CABLE 驱动，不是虚拟输入模式的依赖。�
 - 简体中文 / English 界面，记住语言选择；切换语言不停止音频、不改变参数。Windows 提供的设备名称按原样显示。
 - 独立耳机监听、普通权限启动、按需 UAC、浅/深主题、脱敏诊断预览。
 
-不包含 RNNoise 人声分离、自然音高移调、通用 VST 宿主、声学回声消除（AEC）或房间混响抑制。0.4.0 的氢气音/萝莉音是延迟线实时变调，不保留共振峰，不能当作自然音高或共振峰处理。降噪不保证消除说话中的键盘声或补回遮挡信息。没有将未实现能力放成可用旋钮。
+0.5.0 开发预览新增外放播放参考 AEC 和独立的持续啸叫静音保护，适用于本地 DSP / CABLE 路线，包括 Discord 选择 CABLE Output 时的外部监听。默认优先使用当前 Discord 的唯一物理输出作为参考，再使用系统物理默认输出；不保存或上传播放内容。没有参考时明确显示等待或未就绪，不把降噪、门限或限幅当作消回声。啸叫保护在效果旁路时仍生效，触发后需停止并重新开始。该算法经过合成信号测试，真实房间、不同 USB 时钟、扬声器失真和 Discord 麦克风测试仍需试听验收；不承诺完全消除外放回声。
 
-自有 Windows APO 仍是未完成的设计与前置验证，当前第三方 Equalizer APO 接入保留，不能标为 P4 已完成。范围与阻塞原因见 [自有 APO 设计](docs/architecture/apo-own.md)。
+不包含 RNNoise 人声分离、自然共振峰保持、通用 VST 宿主或房间混响抑制。0.4.0 的氢气音/萝莉音是延迟线实时变调，不保留共振峰。降噪不保证消除说话中的键盘声或补回遮挡信息。
+
+自有 Windows APO 现已有独立原生 COM DLL、增益/八段 EQ/限幅、参数通道和受控安装/还原预览，见 [P4 开发预览验证](docs/validation/p4-development-preview.md)。本版未签名开发组件不自动注册；可信签名、`audiodg.exe` 实际加载和真实系统响应仍未验收，因此尚不标为完整 P4。第三方 Equalizer APO 接入保留。主界面“自研 APO（预览）”只有完成可信部署与绑定后才允许发送参数，明确显示音频待验证。
 
 ## 开发
 
@@ -59,6 +61,8 @@ SDK 锁定于 `global.json`。本地若有 `.tools/dotnet/dotnet.exe`，脚本�
 
 ```powershell
 .\scripts\Build.ps1
+.\scripts\Build-NativeCpp.ps1
+.\scripts\Stage-NativeRuntime.ps1
 .\scripts\Test.ps1
 .\scripts\Test-UI.ps1
 .\scripts\Publish.ps1

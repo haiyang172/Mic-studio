@@ -28,3 +28,4 @@ IMicStudioApoControl : public IUnknown
 };
 
 using MicStudioGetClassObject = HRESULT(WINAPI*)(REFCLSID, REFIID, void**);
+using MicStudioGetContract = HRESULT(WINAPI*)(UINT32*, UINT32*, CLSID*);

@@ -75,7 +75,7 @@ class Apo final : public IAudioProcessingObject, public IAudioProcessingObjectCo
             FILE_ATTRIBUTE_NORMAL, nullptr);
         if (file_ == INVALID_HANDLE_VALUE) return;
         LARGE_INTEGER size{};
-        if (!GetFileSizeEx(file_, &size) || size.QuadPart < sizeof(MicStudioApoParams)) { CloseMapping(); return; }
+        if (!GetFileSizeEx(file_, &size) || size.QuadPart != static_cast<LONGLONG>(sizeof(MicStudioApoParams))) { CloseMapping(); return; }
         mapping_ = CreateFileMappingW(file_, nullptr, PAGE_READONLY, 0, 0, nullptr);
         if (!mapping_) { CloseMapping(); return; }
         mapped_ = static_cast<const volatile uint32_t*>(MapViewOfFile(mapping_, FILE_MAP_READ, 0, 0, sizeof(MicStudioApoParams)));
@@ -146,20 +146,17 @@ public:
     {
         if (!properties) return E_POINTER;
         *properties = nullptr;
-        constexpr size_t size = sizeof(APO_REG_PROPERTIES) + 3 * sizeof(IID);
+        constexpr size_t size = sizeof(APO_REG_PROPERTIES);
         auto p = static_cast<APO_REG_PROPERTIES*>(CoTaskMemAlloc(size));
         if (!p) return E_OUTOFMEMORY;
         std::memset(p, 0, size); p->clsid = CLSID_MicStudioApo;
-        p->Flags = static_cast<APO_FLAG>(APO_FLAG_DEFAULT | APO_FLAG_INPLACE);
+        p->Flags = APO_FLAG_DEFAULT;
         wcscpy_s(p->szFriendlyName, L"Mic Studio Capture APO");
         wcscpy_s(p->szCopyrightInfo, L"Mic Studio contributors");
         p->u32MajorVersion = 1; p->u32MinorVersion = 0;
         p->u32MinInputConnections = p->u32MaxInputConnections = p->u32MinOutputConnections = p->u32MaxOutputConnections = 1;
-        p->u32MaxInstances = UINT32_MAX; p->u32NumAPOInterfaces = 4;
+        p->u32MaxInstances = UINT32_MAX; p->u32NumAPOInterfaces = 1;
         p->iidAPOInterfaceList[0] = __uuidof(IAudioProcessingObject);
-        p->iidAPOInterfaceList[1] = __uuidof(IAudioProcessingObjectConfiguration);
-        p->iidAPOInterfaceList[2] = __uuidof(IAudioProcessingObjectRT);
-        p->iidAPOInterfaceList[3] = __uuidof(IAudioSystemEffects);
         *properties = p; return S_OK;
     }
     HRESULT STDMETHODCALLTYPE Initialize(UINT32 size, BYTE* data) override
@@ -220,6 +217,12 @@ public:
             (input->u32BufferFlags != BUFFER_VALID && input->u32BufferFlags != BUFFER_SILENT) ||
             !output->pBuffer || (output->pBuffer % alignof(float)) != 0 ||
             (input->u32BufferFlags != BUFFER_SILENT && (!input->pBuffer || (input->pBuffer % alignof(float)) != 0))) return;
+        if (input->u32BufferFlags != BUFFER_SILENT && input->pBuffer != output->pBuffer)
+        {
+            const auto bytes = static_cast<UINT_PTR>(input->u32ValidFrameCount) * channels_.load(std::memory_order_relaxed) * sizeof(float);
+            const auto distance = input->pBuffer > output->pBuffer ? input->pBuffer - output->pBuffer : output->pBuffer - input->pBuffer;
+            if (distance < bytes) return; // Partial overlap would overwrite unread frames.
+        }
         MicStudioApoParams p{};
         if (resetRequested_.exchange(false, std::memory_order_acquire)) dsp_.Reset();
         if (Snapshot(p))
@@ -297,8 +300,14 @@ extern "C" HRESULT WINAPI DllGetClassObject(REFCLSID clsid, REFIID iid, void** r
     const auto hr = factory->QueryInterface(iid, result); factory->Release(); return hr;
 }
 extern "C" HRESULT WINAPI DllCanUnloadNow() { return objects.load() == 0 && serverLocks.load() == 0 ? S_OK : S_FALSE; }
-BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID)
+extern "C" HRESULT WINAPI MicStudioApoGetContract(UINT32* version, UINT32* size, CLSID* clsid)
 {
-    if (reason == DLL_PROCESS_ATTACH) DisableThreadLibraryCalls(instance);
+    if (!version || !size || !clsid) return E_POINTER;
+    *version = MICSTUDIO_APO_PARAMS_VERSION; *size = sizeof(MicStudioApoParams); *clsid = CLSID_MicStudioApo; return S_OK;
+}
+BOOL WINAPI DllMain(HINSTANCE, DWORD, LPVOID)
+{
+    // The self-contained prototype links the static CRT, which needs thread
+    // attach/detach notifications. Do no application work under the loader lock.
     return TRUE;
 }

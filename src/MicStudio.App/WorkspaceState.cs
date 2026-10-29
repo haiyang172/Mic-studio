@@ -10,6 +10,9 @@ public sealed class WorkspaceState
     public string? InputDeviceId { get; set; }
     public string? CableOutputId { get; set; }
     public string? PlaybackOutputId { get; set; }
+    public bool EchoCancellationEnabled { get; set; } = true;
+    public string? EchoReferenceOutputDeviceId { get; set; }
+    public Guid? NativeApoInstallReportId { get; set; }
     public int Mode { get; set; }
     public string SelectedPresetId { get; set; } = "";
     public string CreativeThemeId { get; set; } = "warm";
@@ -37,7 +40,7 @@ public sealed class WorkspaceState
             MinimizeToTray = true;
         }
         if (SchemaVersion != CurrentSchemaVersion) throw new ArgumentException(UiText.T("工作区版本不受支持；请保留设置文件并检查版本。", "This workspace version is not supported; keep the settings file and check the version."));
-        if (Mode is < 0 or > 1) throw new ArgumentException(UiText.T("工作区处理方式无效。", "The workspace processing mode is invalid."));
+        if (Mode is < 0 or > 2) throw new ArgumentException(UiText.T("工作区处理方式无效。", "The workspace processing mode is invalid."));
         if (Presets is null || Presets.Count > 200) throw new ArgumentException(UiText.T("工作区预设数量无效。", "The workspace preset count is invalid."));
         if (Language is not (UiText.Chinese or UiText.English)) Language = UiText.Chinese;
         if (Theme is not ("dark" or "light")) Theme = "dark";

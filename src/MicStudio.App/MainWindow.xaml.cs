@@ -48,7 +48,7 @@ public partial class MainWindow : Window
     private bool forceClose;
     private string? noticeRawText;
     private string applyState = "设置已就绪";
-    private static string ProductVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.4.1";
+    private static string ProductVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.5.0";
 
     private Brush Ink => (Brush)FindResource("Ink");
     private Brush Muted => (Brush)FindResource("Muted");
@@ -67,6 +67,7 @@ public partial class MainWindow : Window
         Width = Math.Min(1280, SystemParameters.WorkArea.Width - 24);
         Height = Math.Min(820, SystemParameters.WorkArea.Height - 24);
         engine = new(devices);
+        nativeLeaseTimer.Tick += (_, _) => RefreshNativeLease();
         driverManager.DownloadProgressChanged += progress => Dispatcher.BeginInvoke(() => { if (!closed && driverStatusText != null) driverStatusText.Text = progress.Percent is { } percent ? Loc.F("下载中 {0}%", "Downloading {0}%", percent) : Loc.F("已下载 {0} KB", "Downloaded {0} KB", progress.BytesReceived / 1024); });
         applied = Draft.Clone();
         apo = ApoInstallation.Detect();
@@ -94,11 +95,18 @@ public partial class MainWindow : Window
         saveTimer.Tick += (_, _) => { saveTimer.Stop(); try { vm.Save(); UpdateChrome(); } catch (Exception ex) { Notice(Loc.T("保存失败：", "Save failed: ") + ex.Message); } };
         devices.DevicesChanged += (_, _) => Dispatcher.BeginInvoke(() => { if (!closed) { RefreshDevices(); if (currentPage is 4 or 5) ShowPage(currentPage); } });
         engine.MeterUpdated += (_, m) => Dispatcher.BeginInvoke(() => { if (!closed && engine.IsRunning && m.SessionId == engine.SessionId) UpdateMeters(m); });
+        engine.FeedbackProtectionTriggered += (_, protection) => Dispatcher.BeginInvoke(() =>
+        {
+            if (closed || !engine.IsRunning || protection.SessionId != engine.SessionId) return;
+            applyState = Loc.T("啸叫保护：已静音", "Feedback protection: muted"); UpdateChrome();
+            Notice(Loc.T("检测到持续啸叫，已静音发送给外部软件的声音。请先停止 Discord 麦克风回放或改用耳机，降低外放音量和增益后，停止并重新开始处理。", "Sustained feedback detected; audio sent to external apps is muted. Stop Discord mic-test playback or use headphones, reduce speaker volume and gain, then stop and restart processing."));
+        });
         engine.StatusChanged += (_, status) => Dispatcher.BeginInvoke(() =>
         {
             if (closed || status.IsRunning != engine.IsRunning || status.SessionId != engine.SessionId) return;
+            if (!status.IsRunning && nativeWriter != null) { lastMeter = null; ClearMeters(); UpdateChrome(); return; }
             if (status.ErrorCode != null) Notice(Loc.Tr(status.Message) + "  " + status.ErrorCode);
-            if (!status.IsRunning) { activeCableSendId = null; liveTimer.Stop(); applyState = LocalMode ? "设置已就绪" : "APO 需在设备页更新"; lastMeter = null; ClearMeters(); if (calibrating) { calibrating = false; calibrationTimer.Stop(); calibrationPeaks.Clear(); suggestedGain = null; } }
+            if (!status.IsRunning) { activeCableSendId = null; liveTimer.Stop(); applyState = NativeMode ? Loc.T("自研 APO 参数连接已停止", "Native APO parameter control stopped") : LocalMode ? "设置已就绪" : "APO 需在设备页更新"; lastMeter = null; ClearMeters(); if (calibrating) { calibrating = false; calibrationTimer.Stop(); calibrationPeaks.Clear(); suggestedGain = null; } }
             UpdateChrome(); UpdateLiveLabels();
         });
         engine.RecordingStopped += (_, r) => Dispatcher.BeginInvoke(() => { if (!closed) { Notice(Loc.F("录音已保存在本机（{0:0.0} 秒），未上传。停止采集后可用耳机回放。", "Recording saved locally ({0:0.0} s); nothing was uploaded. Play it through headphones after stopping capture.", r.Duration.TotalSeconds)); UpdateLiveLabels(); } });
@@ -157,6 +165,7 @@ public partial class MainWindow : Window
         {
             ((ComboBoxItem)ModePicker.Items[0]).Content = Loc.T("系统输入 · APO", "System input · APO");
             ((ComboBoxItem)ModePicker.Items[1]).Content = Loc.T("虚拟输入 · CABLE", "Virtual input · CABLE");
+            if (ModePicker.Items.Count >= 3) ((ComboBoxItem)ModePicker.Items[2]).Content = Loc.T("自研 APO（预览）", "Native APO (preview)");
         }
         BuildNavigation();
         UpdateChrome();
@@ -196,6 +205,7 @@ public partial class MainWindow : Window
     {
         if (closed) return;
         closed = true; saveTimer.Stop(); liveTimer.Stop(); calibrationTimer.Stop();
+        StopNativeProcessing();
         lifetime.Cancel();
         try { vm.Save(); } catch { }
         engine.Dispose(); devices.Dispose();
@@ -233,7 +243,7 @@ public partial class MainWindow : Window
 
     private void ToggleProcessing()
     {
-        if (engine.IsRunning) StopAudio(); else StartAudio(LocalMode);
+        if (ProcessingActive) StopAudio(); else StartAudio(LocalMode);
     }
 
     private void ExitApplication()
@@ -263,14 +273,14 @@ public partial class MainWindow : Window
         BypassButton.Content = Draft.Bypass ? Loc.T("效果开关：关", "Effects: Off") : Loc.T("效果开关：开", "Effects: On");
         AutomationProperties.SetName(BypassButton, (string)BypassButton.Content);
         BypassButton.Foreground = Draft.Bypass ? Amber : Accent;
-        ConfigFooter.Text = Loc.Tr(applyState);
-        CaptureFooter.Text = engine.IsRunning ? (LocalMode ? Loc.T("●  处理中", "●  Processing") : Loc.T("●  测量中", "●  Measuring")) : SelectedInput is { IsActive: true } ? Loc.T("已停止", "Stopped") : Loc.T("设备不可用", "Device unavailable");
-        CaptureFooter.Foreground = engine.IsRunning ? Accent : (Brush)FindResource("SidebarInk");
+        ConfigFooter.Text = engine.FeedbackProtectionMuted ? Loc.T("啸叫保护：已静音", "Feedback protection: muted") : NativeMode ? nativeWriter != null ? Loc.T("系统参数已发送 · 音频待验证", "System parameters sent · audio unverified") : Loc.T("自研 APO 参数尚未发送", "Native APO parameters have not been sent") : Loc.Tr(applyState);
+        CaptureFooter.Text = engine.FeedbackProtectionMuted ? Loc.T("啸叫保护：已静音", "Feedback protection: muted") : nativeWriter != null ? Loc.T("系统参数已发送 · 音频待验证", "System parameters sent · audio unverified") : engine.IsRunning ? (LocalMode ? Loc.T("●  处理中", "●  Processing") : Loc.T("●  测量中", "●  Measuring")) : SelectedInput is { IsActive: true } ? Loc.T("已停止", "Stopped") : Loc.T("设备不可用", "Device unavailable");
+        CaptureFooter.Foreground = engine.FeedbackProtectionMuted ? Amber : engine.IsRunning ? Accent : (Brush)FindResource("SidebarInk");
         if (playerButton != null)
         {
-            playerButton.Content = engine.IsRunning ? Loc.T("■  停止", "■  Stop") : LocalMode ? Loc.T("▶  开始处理", "▶  Start processing") : Loc.T("▶  开始测量", "▶  Start measuring");
-            AutomationProperties.SetName(playerButton, engine.IsRunning ? Loc.T("停止", "Stop") : LocalMode ? Loc.T("开始处理", "Start processing") : Loc.T("开始测量", "Start measuring"));
-            playerButton.IsEnabled = engine.IsRunning || SelectedInput is { IsActive: true };
+            playerButton.Content = ProcessingActive ? Loc.T("■  停止", "■  Stop") : LocalMode || NativeMode ? Loc.T("▶  开始处理", "▶  Start processing") : Loc.T("▶  开始测量", "▶  Start measuring");
+            AutomationProperties.SetName(playerButton, ProcessingActive ? Loc.T("停止", "Stop") : LocalMode || NativeMode ? Loc.T("开始处理", "Start processing") : Loc.T("开始测量", "Start measuring"));
+            playerButton.IsEnabled = ProcessingActive || SelectedInput is { IsActive: true };
         }
         DiscordFooter.Text = State.DiscordVerifiedAt is { } time ? Loc.T("Discord 人工确认 · ", "Discord manually confirmed · ") + time.ToLocalTime().ToString("MM-dd HH:mm") : Loc.T("Discord 待验证", "Discord unverified");
         DiscordFooter.Foreground = State.DiscordVerifiedAt is null ? Amber : Accent;
@@ -297,10 +307,11 @@ public partial class MainWindow : Window
     private void Safe(Action action) { try { action(); } catch (Exception ex) { Notice(ex.Message); } }
     private void StopAudio()
     {
+        StopNativeProcessing();
         activeCableSendId = null;
         liveTimer.Stop();
         calibrating = false; calibrationTimer.Stop();
-        engine.Stop(); engine.StopPlayback(); lastMeter = null; ClearMeters(); applyState = LocalMode ? "设置已就绪" : "APO 需在设备页更新"; UpdateChrome(); UpdateLiveLabels();
+        engine.Stop(); engine.StopPlayback(); lastMeter = null; ClearMeters(); applyState = NativeMode ? Loc.T("自研 APO 参数连接已停止", "Native APO parameter control stopped") : LocalMode ? "设置已就绪" : "APO 需在设备页更新"; UpdateChrome(); UpdateLiveLabels();
     }
 
     private void RefreshDevices(bool initial = false)
@@ -311,6 +322,11 @@ public partial class MainWindow : Window
             var previous = SelectedInput;
             inputs = devices.EnumerateInputs(); outputs = devices.EnumerateOutputs();
             var current = SelectedInput;
+            if (nativeWriter != null && (current is not { IsActive: true } || previous?.SampleRate != current.SampleRate || previous?.Channels != current.Channels))
+            {
+                StopNativeProcessing(); UpdateChrome();
+                Notice(Loc.T("所选设备断开或格式改变，自研参数发送已停止。请重新确认设备后开始。", "The selected device disconnected or changed format; native parameter control stopped. Confirm the device and start again."));
+            }
             if (!initial && (previous?.IsActive != current?.IsActive || previous?.SampleRate != current?.SampleRate || previous?.Channels != current?.Channels))
             { suggestedGain = null; InvalidateDiscord(); SaveSoon(); }
             if (initial && State.InputDeviceId is null) State.InputDeviceId = inputs.FirstOrDefault(x => x.IsActive && !x.IsCableReceive && x.IsDefaultCommunications)?.Id ?? inputs.FirstOrDefault(x => x.IsActive && !x.IsCableReceive)?.Id;
@@ -329,6 +345,8 @@ public partial class MainWindow : Window
     {
         Safe(() =>
         {
+            if (NativeMode) { StartNativeProcessing(); return; }
+            DisableOwnNativeBeforeLocalStart();
             // A driver reinstall can recreate endpoint IDs while the app is open.
             // Resolve the current pair before a user starts, not just at first launch.
             if (cable) RefreshDevices();
@@ -346,9 +364,11 @@ public partial class MainWindow : Window
             {
                 var route = SelectCableRoute();
                 if (!route.IsReady) { cableConnectionWarning = RouteMessage(route); throw new InvalidOperationException(cableConnectionWarning); }
+                CheckExternalPlaybackRouting();
             }
             liveTimer.Stop();
-            engine.Start(new CaptureOptions { InputDeviceId = input.Id, ProcessLocally = LocalMode, Settings = snapshot, CableOutputDeviceId = cable ? State.CableOutputId : null, MonitorOutputDeviceId = monitor ? monitorId : null, MonitorConfirmedHeadphones = headphones });
+            engine.Start(new CaptureOptions { InputDeviceId = input.Id, ProcessLocally = LocalMode, Settings = snapshot, CableOutputDeviceId = cable ? State.CableOutputId : null, MonitorOutputDeviceId = monitor ? monitorId : null, MonitorConfirmedHeadphones = headphones,
+                EchoCancellationEnabled = LocalMode && State.EchoCancellationEnabled, EchoReferenceOutputDeviceId = State.EchoReferenceOutputDeviceId });
             activeCableSendId = cable ? State.CableOutputId : null;
             applied = snapshot; applyState = LocalMode ? "实时调音" : "APO 音频待验证"; UpdateChrome();
             if (adjusted.Count > 0) Notice(Loc.T("已按当前设备采样率适配 EQ：", "EQ fitted to the current device sample rate: ") + Loc.Join(adjusted) + Loc.T("。原预设参数已保留。", ". The saved preset parameters were preserved."));
@@ -523,12 +543,12 @@ public partial class MainWindow : Window
     private void UpdateTrayMenu()
     {
         if (tray == null) return;
-        tray.Text = engine.IsRunning
+        tray.Text = ProcessingActive
             ? Loc.T("Mic Studio · 正在处理本地音频", "Mic Studio · processing local audio")
             : Loc.T("Mic Studio · 后台运行", "Mic Studio · background");
         if (trayProcessingItem == null) return;
-        trayProcessingItem.Text = engine.IsRunning ? Loc.T("暂停处理", "Pause processing") : Loc.T("继续处理", "Resume processing");
-        trayProcessingItem.Enabled = engine.IsRunning || SelectedInput is { IsActive: true };
+        trayProcessingItem.Text = ProcessingActive ? Loc.T("暂停处理", "Pause processing") : Loc.T("继续处理", "Resume processing");
+        trayProcessingItem.Enabled = ProcessingActive || SelectedInput is { IsActive: true };
     }
     private void RestartElevated()
     {

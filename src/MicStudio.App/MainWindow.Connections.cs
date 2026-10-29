@@ -64,6 +64,7 @@ public partial class MainWindow
             routeControls.Children.Add(new Expander { Header = Loc.T("更换虚拟线路", "Change virtual cable"), Foreground = Ink, Content = DevicePicker(completeSends, State.CableOutputId, id => { if (engine.IsRunning) StopAudio(); State.CableOutputId = id; InvalidateDiscord(); SaveSoon(); ShowPage(4); }), Margin = new(0, 0, 0, 12) });
         routeControls.Children.Add(Buttons(B("开始处理并发送", () => { if (!LocalMode) { ModePicker.SelectedIndex = 1; } StartAudio(true); }, true), B("停止", StopAudio), B("复制输入名称", () => { if (route.Receive != null) Clipboard.SetText(route.Receive.Name); else Notice("虚拟线路尚未就绪。"); })));
         Add(Card("用作其他软件的输入", "自动选择匹配的 CABLE 收发端；不会修改其他软件或 Windows 默认输入。", routeControls));
+        Add(Card(Loc.T("外部监听保护", "External monitoring protection"), null, ExternalMonitoringControls()));
         var physical = outputs.Where(d => d.IsActive && !AudioDeviceService.IsVirtualCableEndpoint(d.Name)).ToList();
         Add(Card("耳机监听", "仅选择并佩戴物理耳机后开启，监听额外衰减 12 dB；更改监听设置会停止当前音频。", DevicePicker(physical, State.PlaybackOutputId, id => { State.PlaybackOutputId = id; monitorId = id; if (engine.IsRunning) StopAudio(); SaveSoon(); }),
             Toggle("已佩戴耳机", headphones, v => { headphones = v; if (!v) { monitor = false; if (engine.IsRunning) StopAudio(); } }),
@@ -73,6 +74,7 @@ public partial class MainWindow
                 monitor = v; monitorId = State.PlaybackOutputId; if (engine.IsRunning) StopAudio();
             })));
         var advanced = new StackPanel();
+        Add(new Expander { Header = Loc.T("自研 APO（开发预览）", "Native APO (development preview)"), Foreground = Ink, Content = NativeApoControls(), Margin = new(0, 8, 0, 12) });
         advanced.Children.Add(T(apo.Found ? Loc.F("Equalizer APO {0}", "Equalizer APO {0}", apo.Version) : Loc.T("Equalizer APO 未检测到", "Equalizer APO not found"), 14, apo.Found ? Accent : Amber));
         advanced.Children.Add(Buttons(B("获取 APO", () => Open("https://sourceforge.net/projects/equalizerapo/")), B("设备绑定", () => { if (apo.ConfiguratorPath is null) { Notice("未检测到 APO 设备配置工具。"); return; } Open(apo.ConfiguratorPath); }), B("官方编辑器", () => { if (apo.EditorPath is null) { Notice("未检测到 APO 编辑器。"); return; } Open(apo.EditorPath); }), B("预览 / 应用 EQ", () => { if (LocalMode) { Notice("先在顶部选择系统输入 · APO。"); return; } ApplyDraft(); }), B("移除自有挂接", () => { StopAudio(); var result = new ApoConfigService(apo).RemoveOwnedConfiguration(); Notice(result.Message); InvalidateDiscord(); })));
         advanced.Children.Add(T("APO 路线只应用增益与 EQ；需要绑定到目标录音端点。关闭软件后系统效果仍可能存在。", 12, Muted));
