@@ -203,9 +203,9 @@ Test("Real delay generates an echo at configured sample offset", () =>
 });
 Test("Creative modules all produce finite non-identical output", () =>
 {
-    foreach (var effect in new[] { "saturation", "robot", "reverb" })
+    foreach (var effect in new[] { "saturation", "robot", "reverb", "phone" })
     {
-        var s = Flat(); s.Creative.SaturationEnabled = effect == "saturation"; s.Creative.RobotEnabled = effect == "robot"; s.Creative.ReverbEnabled = effect == "reverb";
+        var s = Flat(); s.Creative.SaturationEnabled = effect == "saturation"; s.Creative.RobotEnabled = effect == "robot"; s.Creative.ReverbEnabled = effect == "reverb"; s.Creative.PhoneEnabled = effect == "phone";
         var data = Tone(500, .2); var before = (float[])data.Clone(); new DspProcessor(48000, 1, s).Process(data, 0, data.Length);
         Require(data.All(float.IsFinite) && !data.SequenceEqual(before), "Effect inactive: " + effect);
     }
