@@ -14,6 +14,7 @@ internal sealed class SpectralDenoiser
     private readonly double[] input = new double[FrameSize], output = new double[FrameSize], window = new double[FrameSize], gains = new double[FrameSize];
     private readonly Complex[] spectrum = new Complex[FrameSize];
     private int cursor, sinceFrame;
+    private double trackedNoisePower;
 
     public SpectralDenoiser()
     {
@@ -29,6 +30,7 @@ internal sealed class SpectralDenoiser
         Array.Clear(input); Array.Clear(output); Array.Clear(spectrum);
         Array.Fill(gains, 1);
         cursor = sinceFrame = 0;
+        trackedNoisePower = 0;
     }
 
     public double Process(double sample, DenoiseSettings settings)
@@ -42,13 +44,37 @@ internal sealed class SpectralDenoiser
         for (int i = 0; i < FrameSize; i++) spectrum[i] = input[(cursor + i) % FrameSize] * window[i];
         Fft(spectrum, false);
         // Expected per-bin white noise power after windowing: variance * sum(window²).
-        double noisePower = Math.Pow(10, settings.NoiseFloorDb / 10) * FrameSize / 2;
+        double configuredNoisePower = Math.Pow(10, settings.NoiseFloorDb / 10) * FrameSize / 2;
+        double framePower = 0;
+        for (int i = 0; i < FrameSize; i++)
+        {
+            double windowed = input[(cursor + i) % FrameSize] * window[i];
+            framePower += windowed * windowed;
+        }
+        framePower /= FrameSize;
+        if (trackedNoisePower <= 0) trackedNoisePower = configuredNoisePower;
+        if (settings.AutoNoise)
+        {
+            // Minimum-statistics style tracking: quiet frames pull the estimate down
+            // quickly; loud speech only lets it rise very slowly.
+            if (framePower < trackedNoisePower * 4)
+                trackedNoisePower = 0.98 * trackedNoisePower + 0.02 * Math.Max(framePower, 1e-15);
+            else trackedNoisePower *= 1.0002;
+            trackedNoisePower = Math.Clamp(trackedNoisePower, 1e-12, Math.Pow(10, -20 / 10.0) * FrameSize / 2 * 4);
+        }
+        else trackedNoisePower = configuredNoisePower;
+        double noisePower = trackedNoisePower;
+        double snr = framePower / Math.Max(noisePower, 1e-25);
+        double speech = settings.VoicePriority ? Math.Clamp((snr - 1.5) / 6, 0, 1) : 0;
         double minGain = Math.Pow(10, -24 * settings.Strength / 20);
         for (int i = 0; i < FrameSize; i++)
         {
             var power = spectrum[i].Magnitude * spectrum[i].Magnitude;
             var wiener = Math.Sqrt(Math.Max(0, 1 - noisePower / Math.Max(power, 1e-25)));
             var target = Math.Max(minGain, 1 - settings.Strength + settings.Strength * wiener);
+            // Preserve speech onsets, consonants and tails instead of hollowing out
+            // every bin during a strong talker.
+            if (speech > 0) target += (1 - target) * 0.55 * speech;
             gains[i] = 0.6 * gains[i] + 0.4 * target;
             spectrum[i] *= gains[i];
         }

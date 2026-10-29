@@ -11,7 +11,9 @@ public partial class MainWindow
         var enabled = LocalMode;
         Add(Card("降噪", "适合稳定底噪。",
             ButtonSwitch("降噪", Draft.Denoise.Enabled, v => vm.Change(s => s.Denoise.Enabled = v), enabled, readValue: () => Draft.Denoise.Enabled),
-            Parameter("强度", 0, 100, Draft.Denoise.Strength * 100, v => vm.Change(s => s.Denoise.Strength = v / 100, true), "%", 1, enabled, readValue: () => Draft.Denoise.Strength * 100)));
+            Parameter("强度", 0, 100, Draft.Denoise.Strength * 100, v => vm.Change(s => s.Denoise.Strength = v / 100, true), "%", 1, enabled, readValue: () => Draft.Denoise.Strength * 100),
+            Toggle("自动跟踪底噪", Draft.Denoise.AutoNoise, v => vm.Change(s => s.Denoise.AutoNoise = v), enabled),
+            Toggle("语音优先（保留轻声与尾音）", Draft.Denoise.VoicePriority, v => vm.Change(s => s.Denoise.VoicePriority = v), enabled)));
         Add(Card("均衡器", "调整低频、清晰度与音色。", B("调整 EQ", () => ShowPage(1))));
         Add(Card("音量稳定", "压低过响的讲话。",
             ButtonSwitch("压缩", Draft.Compressor.Enabled, v => vm.Change(s => s.Compressor.Enabled = v), enabled, readValue: () => Draft.Compressor.Enabled),
@@ -48,7 +50,13 @@ public partial class MainWindow
     private Border BuildCreativeCard(bool enabled)
     {
         var active = CreativeEnabled(Draft.Creative);
-        var themes = new (string Id, string Name)[] { ("warm", Loc.CreativeTheme("warm")), ("crunch", Loc.CreativeTheme("crunch")), ("robot", Loc.CreativeTheme("robot")), ("echo", Loc.CreativeTheme("echo")), ("space", Loc.CreativeTheme("space")), ("custom", Loc.CreativeTheme("custom")) };
+        var themes = new (string Id, string Name)[]
+        {
+            ("warm", Loc.CreativeTheme("warm")), ("crunch", Loc.CreativeTheme("crunch")), ("robot", Loc.CreativeTheme("robot")),
+            ("echo", Loc.CreativeTheme("echo")), ("space", Loc.CreativeTheme("space")), ("phone", Loc.CreativeTheme("phone")),
+            ("helium", Loc.CreativeTheme("helium")), ("loli", Loc.CreativeTheme("loli")), ("monster", Loc.CreativeTheme("monster")),
+            ("custom", Loc.CreativeTheme("custom"))
+        };
         var picker = new ComboBox { MinWidth = 150, Margin = new Thickness(0, 4, 0, 12), IsEnabled = enabled };
         foreach (var theme in themes) picker.Items.Add(new ComboBoxItem { Content = theme.Name, Tag = theme.Id });
         picker.SelectedIndex = Math.Max(0, Array.FindIndex(themes, t => t.Id == State.CreativeThemeId));
@@ -69,7 +77,7 @@ public partial class MainWindow
                 vm.Change(s =>
                 {
                     if (!value) { var mask = CreativeMask(s.Creative); if (mask != 0) State.CreativeEnabledMask = mask; DisableCreative(s.Creative); }
-                    else if (State.CreativeThemeId == "custom") EnableCreative(s.Creative, State.CreativeEnabledMask is > 0 and <= 15 ? State.CreativeEnabledMask : 1);
+                    else if (State.CreativeThemeId == "custom") EnableCreative(s.Creative, State.CreativeEnabledMask is > 0 and <= 63 ? State.CreativeEnabledMask : 1);
                     else SetCreativeTheme(s.Creative, State.CreativeThemeId, CreativeAmount(s.Creative, State.CreativeThemeId), true);
                 });
             }, enabled, readValue: () => CreativeEnabled(Draft.Creative)), amount);
@@ -83,6 +91,8 @@ public partial class MainWindow
             Parameter("饱和驱动", 0, 24, Draft.Creative.DriveDb, v => Change(s => s.DriveDb = v), "dB", .1, enabled, readValue: () => Draft.Creative.DriveDb),
             ButtonSwitch("机器人", Draft.Creative.RobotEnabled, v => Change(s => s.RobotEnabled = v), enabled, readValue: () => Draft.Creative.RobotEnabled),
             Parameter("调制频率", 20, 300, Draft.Creative.RobotFrequencyHz, v => Change(s => s.RobotFrequencyHz = v), "Hz", 1, enabled, readValue: () => Draft.Creative.RobotFrequencyHz),
+            ButtonSwitch("电话 / 电台", Draft.Creative.PhoneEnabled, v => Change(s => s.PhoneEnabled = v), enabled, readValue: () => Draft.Creative.PhoneEnabled),
+            Parameter("音高", -12, 12, Draft.Creative.PitchSemitones, v => Change(s => s.PitchSemitones = v), "st", .5, enabled, readValue: () => Draft.Creative.PitchSemitones),
             ButtonSwitch("回声", Draft.Creative.DelayEnabled, v => Change(s => s.DelayEnabled = v), enabled, readValue: () => Draft.Creative.DelayEnabled),
             Parameter("回声间隔", 20, 1000, Draft.Creative.DelayMs, v => Change(s => s.DelayMs = v), "ms", 1, enabled, readValue: () => Draft.Creative.DelayMs),
             Parameter("回声混合", 0, .6, Draft.Creative.DelayMix, v => Change(s => s.DelayMix = v), "", .01, enabled, readValue: () => Draft.Creative.DelayMix),
@@ -91,14 +101,24 @@ public partial class MainWindow
             Parameter("混响混合", 0, .6, Draft.Creative.ReverbMix, v => Change(s => s.ReverbMix = v), "", .01, enabled, readValue: () => Draft.Creative.ReverbMix));
     }
 
-    private static bool CreativeEnabled(CreativeSettings c) => c.SaturationEnabled || c.RobotEnabled || c.DelayEnabled || c.ReverbEnabled;
-    private static int CreativeMask(CreativeSettings c) => (c.SaturationEnabled ? 1 : 0) | (c.RobotEnabled ? 2 : 0) | (c.DelayEnabled ? 4 : 0) | (c.ReverbEnabled ? 8 : 0);
-    private static void EnableCreative(CreativeSettings c, int mask) { c.SaturationEnabled = (mask & 1) != 0; c.RobotEnabled = (mask & 2) != 0; c.DelayEnabled = (mask & 4) != 0; c.ReverbEnabled = (mask & 8) != 0; }
-    private static void DisableCreative(CreativeSettings c) { c.SaturationEnabled = false; c.RobotEnabled = false; c.DelayEnabled = false; c.ReverbEnabled = false; }
+    private static bool CreativeEnabled(CreativeSettings c) => c.SaturationEnabled || c.RobotEnabled || c.DelayEnabled || c.ReverbEnabled || c.PhoneEnabled || c.PitchSemitones != 0;
+    private static int CreativeMask(CreativeSettings c) => (c.SaturationEnabled ? 1 : 0) | (c.RobotEnabled ? 2 : 0) | (c.DelayEnabled ? 4 : 0) | (c.ReverbEnabled ? 8 : 0) | (c.PhoneEnabled ? 16 : 0) | (c.PitchSemitones != 0 ? 32 : 0);
+    private static void EnableCreative(CreativeSettings c, int mask)
+    {
+        c.SaturationEnabled = (mask & 1) != 0; c.RobotEnabled = (mask & 2) != 0; c.DelayEnabled = (mask & 4) != 0; c.ReverbEnabled = (mask & 8) != 0;
+        c.PhoneEnabled = (mask & 16) != 0; c.PitchSemitones = (mask & 32) != 0 ? 4 : 0;
+    }
+    private static void DisableCreative(CreativeSettings c)
+    {
+        c.SaturationEnabled = false; c.RobotEnabled = false; c.DelayEnabled = false; c.ReverbEnabled = false;
+        c.PhoneEnabled = false; c.PitchSemitones = 0;
+    }
     private static double CreativeAmount(CreativeSettings c, string theme) => Math.Clamp(theme switch
     {
         "warm" => c.DriveDb / 12, "crunch" => c.DriveDb / 24, "robot" => (c.RobotFrequencyHz - 20) / 280,
-        "echo" => c.DelayMix / .6, "space" => c.ReverbMix / .6, _ => .5
+        "echo" => c.DelayMix / .6, "space" => c.ReverbMix / .6,
+        "phone" => c.DriveDb / 12, "helium" => (c.PitchSemitones - 3) / 9, "loli" => (c.PitchSemitones - 1) / 5,
+        "monster" => (-c.PitchSemitones - 3) / 6, _ => .5
     }, 0, 1);
     private static void SetCreativeTheme(CreativeSettings c, string theme, double amount, bool enabled)
     {
@@ -110,6 +130,10 @@ public partial class MainWindow
             case "robot": c.RobotFrequencyHz = 20 + 280 * amount; c.RobotEnabled = enabled; break;
             case "echo": c.DelayMs = 180; c.DelayMix = .6 * amount; c.DelayFeedback = .2; c.DelayEnabled = enabled; break;
             case "space": c.ReverbMix = .6 * amount; c.ReverbEnabled = enabled; break;
+            case "phone": c.DriveDb = 12 * amount; c.PhoneEnabled = enabled; break;
+            case "helium": c.PitchSemitones = enabled ? 3 + 9 * amount : 0; break;
+            case "loli": c.PitchSemitones = enabled ? 1 + 5 * amount : 0; break;
+            case "monster": c.PitchSemitones = enabled ? -(3 + 6 * amount) : 0; break;
             default: c.DriveDb = 12 * amount; c.SaturationEnabled = enabled; break;
         }
     }

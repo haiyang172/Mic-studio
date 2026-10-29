@@ -9,7 +9,8 @@ public sealed class DspProcessor
     public double LastInputPeakDb { get; private set; } = double.NegativeInfinity;
     public double LastOutputPeakDb { get; private set; } = double.NegativeInfinity;
     public double LastCompressorReductionDb { get; private set; }
-    public int AlgorithmLatencySamples => state.Settings.Denoise.Enabled && !state.Settings.Bypass ? SpectralDenoiser.FrameSize : 0;
+    public int AlgorithmLatencySamples => (state.Settings.Denoise.Enabled && !state.Settings.Bypass ? SpectralDenoiser.FrameSize : 0) +
+        (state.Settings.Creative.PitchSemitones != 0 && !state.Settings.Bypass ? state.PitchLatency : 0);
     public double AlgorithmLatencyMs => AlgorithmLatencySamples * 1000.0 / sampleRate;
 
     public DspProcessor(int sampleRate, int channels, AudioSettings settings)
@@ -89,6 +90,15 @@ public sealed class DspProcessor
                 for (int c = 0; c < channels; c++)
                 {
                     double sample = s.Frame[c] * gain;
+                    if (config.Creative.PhoneEnabled)
+                    {
+                        // Telephone/radio band shape followed by a soft saturator.
+                        s.PhoneHigh[c] += 0.035 * (sample - s.PhoneHigh[c]);
+                        double highPassed = sample - s.PhoneHigh[c];
+                        s.PhoneLow[c] += 0.32 * (highPassed - s.PhoneLow[c]);
+                        sample = Math.Tanh(s.PhoneLow[c] * 4) / Math.Tanh(4);
+                    }
+                    if (config.Creative.PitchSemitones != 0) sample = s.PitchShifters[c].Process(sample, s.PitchRatio);
                     if (config.Creative.SaturationEnabled) sample = Math.Tanh(sample * s.Drive) / Math.Tanh(s.Drive);
                     if (config.Creative.RobotEnabled) sample *= Math.Sin(s.RobotPhase);
                     if (config.Creative.DelayEnabled)
@@ -159,6 +169,9 @@ public sealed class DspProcessor
         public Biquad[][] Filters { get; private set; }
         public Biquad[][]? PreviousFilters;
         public SpectralDenoiser[] Denoisers { get; private set; } = [];
+        public PitchShifter[] PitchShifters { get; private set; } = [];
+        public double[] PhoneHigh { get; } = new double[16];
+        public double[] PhoneLow { get; } = new double[16];
         public double[] Frame { get; }
         public double[][] Delay { get; private set; } = [];
         public double[][][] Reverb { get; private set; } = [];
@@ -166,10 +179,10 @@ public sealed class DspProcessor
         public int DelayPosition, DelayWritten, ReverbWritten, GateHold, FilterFadeRemaining;
         public bool DiscardHistory;
         public double RobotPhase, Detector, GateDetector, GateGain = 1, LimiterGain = 1, CompressorGain = 1, InputGain, OutputGain;
-        public readonly double TargetInputGain, TargetOutputGain, GainRamp, DynamicsRamp, CompAttack, CompRelease, GateAttack, GateRelease, GateDetectorRelease, LimiterRelease, Ceiling, Drive;
+        public readonly double TargetInputGain, TargetOutputGain, GainRamp, DynamicsRamp, CompAttack, CompRelease, GateAttack, GateRelease, GateDetectorRelease, LimiterRelease, Ceiling, Drive, PitchRatio;
         public readonly int GateHoldFrames;
         public readonly int FilterFadeFrames;
-        public readonly int DelayFrames, MaxReverbFrames;
+        public readonly int DelayFrames, MaxReverbFrames, PitchLatency;
 
         public State(AudioSettings settings, int sampleRate, int channels, bool initializeHistory = true)
         {
@@ -186,7 +199,13 @@ public sealed class DspProcessor
                 Delay = Enumerable.Range(0, channels).Select(_ => new double[sampleRate]).ToArray();
                 Reverb = Enumerable.Range(0, channels).Select(_ => times.Select(t => new double[Math.Max(1, (int)(sampleRate * t))]).ToArray()).ToArray();
             }
+            // Only allocate pitch buffers when the feature is needed; live updates with
+            // pitch off must not allocate per slider revision.
+            if (settings.Creative.PitchSemitones != 0)
+                PitchShifters = Enumerable.Range(0, channels).Select(_ => new PitchShifter(sampleRate)).ToArray();
             InputGain = TargetInputGain = DbToLinear(settings.InputGainDb); OutputGain = TargetOutputGain = DbToLinear(settings.OutputGainDb);
+            PitchRatio = Math.Pow(2, settings.Creative.PitchSemitones / 12);
+            PitchLatency = PitchShifter.LatencyFor(sampleRate);
             GainRamp = Coefficient(5, sampleRate); DynamicsRamp = Coefficient(2, sampleRate); FilterFadeFrames = Math.Max(1, sampleRate / 100);
             CompAttack = Coefficient(settings.Compressor.AttackMs, sampleRate); CompRelease = Coefficient(settings.Compressor.ReleaseMs, sampleRate);
             GateAttack = Coefficient(settings.Gate.AttackMs, sampleRate); GateRelease = Coefficient(settings.Gate.ReleaseMs, sampleRate); GateDetectorRelease = Coefficient(50, sampleRate);
@@ -203,6 +222,19 @@ public sealed class DspProcessor
             Denoisers = previous.Denoisers;
             if (Settings.Denoise.Enabled && !previous.Settings.Denoise.Enabled)
                 foreach (var denoiser in Denoisers) denoiser.Reset();
+            if (Settings.Creative.PitchSemitones != 0)
+            {
+                if (previous.Settings.Creative.PitchSemitones != 0 && previous.PitchShifters.Length == PitchShifters.Length)
+                    PitchShifters = previous.PitchShifters;
+                else
+                    foreach (var shifter in PitchShifters) shifter.Reset();
+            }
+            else PitchShifters = [];
+            if (Settings.Creative.PhoneEnabled && previous.Settings.Creative.PhoneEnabled)
+            {
+                Array.Copy(previous.PhoneHigh, PhoneHigh, PhoneHigh.Length);
+                Array.Copy(previous.PhoneLow, PhoneLow, PhoneLow.Length);
+            }
             bool sameFilters = Settings.EqEnabled == previous.Settings.EqEnabled;
             for (int i = 0; i < Settings.Bands.Count; i++)
             {

@@ -24,11 +24,21 @@ public sealed class StudioViewModel : INotifyPropertyChanged
             State.Draft.Validate();
             foreach (var p in State.Presets) p.Validate();
             var creative = State.Draft.Creative;
-            var activeMask = (creative.SaturationEnabled ? 1 : 0) | (creative.RobotEnabled ? 2 : 0) | (creative.DelayEnabled ? 4 : 0) | (creative.ReverbEnabled ? 8 : 0);
-            var themeMask = State.CreativeThemeId switch { "warm" or "crunch" => 1, "robot" => 2, "echo" => 4, "space" => 8, "custom" => activeMask, _ => -1 };
+            var activeMask = (creative.SaturationEnabled ? 1 : 0) | (creative.RobotEnabled ? 2 : 0) | (creative.DelayEnabled ? 4 : 0) | (creative.ReverbEnabled ? 8 : 0) | (creative.PhoneEnabled ? 16 : 0) | (creative.PitchSemitones != 0 ? 32 : 0);
+            var themeMask = State.CreativeThemeId switch
+            {
+                "warm" or "crunch" => 1,
+                "robot" => 2,
+                "echo" => 4,
+                "space" => 8,
+                "phone" => 16,
+                "helium" or "loli" or "monster" => 32,
+                "custom" => activeMask,
+                _ => -1
+            };
             // Old workspaces had the effect flags but no named creative theme.
             if (themeMask == -1 || (activeMask != 0 && activeMask != themeMask)) State.CreativeThemeId = "custom";
-            if (State.CreativeEnabledMask is < 1 or > 15) State.CreativeEnabledMask = activeMask == 0 ? 1 : activeMask;
+            if (State.CreativeEnabledMask is < 1 or > 63) State.CreativeEnabledMask = activeMask == 0 ? 1 : activeMask;
         }
         catch (Exception ex)
         {

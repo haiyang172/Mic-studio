@@ -4,7 +4,7 @@
   <Border Background="{DynamicResource SidebarBg}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,1,0">
    <DockPanel>
     <StackPanel x:Name="BrandHeader" DockPanel.Dock="Top" Orientation="Horizontal" Margin="18,24,14,24"><Image x:Name="BrandIcon" Source="Assets/mic-studio.png" Width="32" Height="32" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" ToolTip="Mic Studio"/><StackPanel x:Name="BrandText" Margin="10,0,0,0" VerticalAlignment="Center"><TextBlock x:Name="Brand" Text="Mic Studio" FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"/><TextBlock x:Name="BrandCaption" Visibility="Collapsed"/></StackPanel></StackPanel>
-    <StackPanel DockPanel.Dock="Bottom" Margin="20,18"><TextBlock x:Name="SideCaption" Visibility="Collapsed"/><TextBlock x:Name="SideVersion" Text="0.3.0" FontSize="11" Foreground="{DynamicResource SidebarInk}"/></StackPanel>
+    <StackPanel DockPanel.Dock="Bottom" Margin="20,18"><TextBlock x:Name="SideCaption" Visibility="Collapsed"/><TextBlock x:Name="SideVersion" Text="0.4.0" FontSize="11" Foreground="{DynamicResource SidebarInk}"/></StackPanel>
     <StackPanel x:Name="Navigation"/>
    </DockPanel>
   </Border>

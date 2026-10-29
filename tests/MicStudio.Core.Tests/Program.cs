@@ -59,6 +59,7 @@ Test("Settings validation rejects non-finite and unsafe values", () =>
     s = Flat(); s.InputGainDb = 31; Reject(() => s.Validate(), "Gain out of range accepted");
     s = Flat(); s.Bands[3].Type = EqFilterType.HighPass; Reject(() => s.Validate(), "Wrong type accepted");
     s = Flat(); s.Bands[7].Enabled = true; Reject(() => s.Validate(16000), "Nyquist violation accepted");
+    s = Flat(); s.Creative.PitchSemitones = 13; Reject(() => s.Validate(), "Pitch range accepted");
 });
 Test("Bypass passes exact interleaved samples without limiting", () =>
 {
@@ -162,6 +163,28 @@ Test("Noise suppression retains strong speech-band tone", () =>
     var s = Flat(); s.Denoise.Enabled = true; s.Denoise.Strength = .55; s.Denoise.NoiseFloorDb = -55;
     var data = Tone(1000, .15); var before = Rms(data); new DspProcessor(48000, 1, s).Process(data, 0, data.Length);
     Require(20 * Math.Log10(Rms(data) / before) > -.2, "Strong tone excessively suppressed");
+});
+Test("Auto noise tracking and voice priority keep a strong talker audible", () =>
+{
+    var s = Flat(); s.Denoise.Enabled = true; s.Denoise.Strength = .8; s.Denoise.NoiseFloorDb = -30; s.Denoise.AutoNoise = true; s.Denoise.VoicePriority = true;
+    var processor = new DspProcessor(48000, 1, s);
+    var random = new Random(9); var quiet = Enumerable.Range(0, 96000).Select(_ => (float)((random.NextDouble() * 2 - 1) * .002)).ToArray();
+    processor.Process(quiet, 0, quiet.Length);
+    var speech = Tone(1000, .15); processor.Process(speech, 0, speech.Length);
+    Require(Rms(speech, 24000) > .05, "Voice priority removed strong speech");
+    Require(processor.AlgorithmLatencySamples == 512, "Denoise latency reporting");
+});
+Test("Pitch shift changes measured pitch without changing the stream length", () =>
+{
+    var s = Flat(); s.Creative.PitchSemitones = 12;
+    var data = Tone(300, .1, 96000); var length = data.Length;
+    var processor = new DspProcessor(48000, 1, s); processor.Process(data, 0, data.Length);
+    Require(data.Length == length && data.All(float.IsFinite), "Pitch shift changed stream length or produced non-finite samples");
+    var tail = data.Skip(24000).ToArray();
+    var crossings = 0; for (var i = 1; i < tail.Length; i++) if ((tail[i - 1] < 0) != (tail[i] < 0)) crossings++;
+    var estimated = crossings / 2.0 / (tail.Length / 48000.0);
+    Require(estimated is > 480 and < 760, "Pitch shift did not move 300 Hz near one octave: " + estimated);
+    Require(processor.AlgorithmLatencySamples >= 1000, "Pitch shift latency not reported");
 });
 Test("Processing is invariant to capture buffer chunk size", () =>
 {

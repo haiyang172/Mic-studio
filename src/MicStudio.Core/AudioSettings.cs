@@ -21,6 +21,8 @@ public sealed class DenoiseSettings
     public bool Enabled { get; set; }
     public double Strength { get; set; } = 0.55;
     public double NoiseFloorDb { get; set; } = -55;
+    public bool AutoNoise { get; set; }
+    public bool VoicePriority { get; set; }
 }
 
 public sealed class CompressorSettings
@@ -63,6 +65,8 @@ public sealed class CreativeSettings
     public double DelayFeedback { get; set; } = 0.2;
     public bool ReverbEnabled { get; set; }
     public double ReverbMix { get; set; } = 0.12;
+    public double PitchSemitones { get; set; }
+    public bool PhoneEnabled { get; set; }
 }
 
 public sealed class AudioSettings
@@ -140,7 +144,7 @@ public sealed class AudioSettings
         Check(Compressor.ThresholdDb, -60, 0, "压缩门限", "Compressor threshold"); Check(Compressor.Ratio, 1, 20, "压缩比", "Compression ratio"); Check(Compressor.AttackMs, 0.1, 200, "压缩启动", "Compressor attack"); Check(Compressor.ReleaseMs, 10, 2000, "压缩释放", "Compressor release"); Check(Compressor.MakeupDb, 0, 18, "压缩补偿", "Compressor makeup");
         Check(Gate.ThresholdDb, -90, -10, "扩展门限", "Expander threshold"); Check(Gate.Ratio, 1, 10, "扩展比例", "Expander ratio"); Check(Gate.AttackMs, 0.1, 100, "扩展启动", "Expander attack"); Check(Gate.HoldMs, 0, 1000, "扩展保持", "Expander hold"); Check(Gate.ReleaseMs, 20, 2000, "扩展释放", "Expander release"); Check(Gate.RangeDb, 0, 60, "扩展范围", "Expander range");
         Check(Limiter.CeilingDb, -12, -0.1, "限幅上限", "Limiter ceiling"); Check(Limiter.ReleaseMs, 10, 1000, "限幅释放", "Limiter release");
-        Check(Creative.DriveDb, 0, 24, "饱和驱动", "Saturation drive"); Check(Creative.RobotFrequencyHz, 20, 300, "环形调制频率", "Ring modulation rate"); Check(Creative.DelayMs, 20, 1000, "回声间隔", "Echo delay"); Check(Creative.DelayMix, 0, 0.6, "回声混合", "Echo mix"); Check(Creative.DelayFeedback, 0, 0.75, "回声反馈", "Echo feedback"); Check(Creative.ReverbMix, 0, 0.6, "混响混合", "Reverb mix");
+        Check(Creative.DriveDb, 0, 24, "饱和驱动", "Saturation drive"); Check(Creative.RobotFrequencyHz, 20, 300, "环形调制频率", "Ring modulation rate"); Check(Creative.DelayMs, 20, 1000, "回声间隔", "Echo delay"); Check(Creative.DelayMix, 0, 0.6, "回声混合", "Echo mix"); Check(Creative.DelayFeedback, 0, 0.75, "回声反馈", "Echo feedback"); Check(Creative.ReverbMix, 0, 0.6, "混响混合", "Reverb mix"); Check(Creative.PitchSemitones, -12, 12, "音高半音", "Pitch shift semitones");
     }
 
     private static void Check(double value, double min, double max, string label, string englishLabel)

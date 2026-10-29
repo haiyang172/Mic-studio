@@ -31,6 +31,14 @@ function New-IconPng([int]$size) {
         $drawing.PushTransform([Windows.Media.ScaleTransform]::new($size / 256.0, $size / 256.0))
         foreach ($element in $svg.DocumentElement.ChildNodes) {
             if ($element.LocalName -notin @('rect', 'path')) { continue }
+            $always = $element.GetAttribute('data-always') -eq 'true'
+            $smallOnly = $element.GetAttribute('data-small-only') -eq 'true'
+            if ($size -lt 32) {
+                # At 16/24 px the character collapses into noise. Keep the compact MS
+                # monogram instead of an unreadable miniature face.
+                if (!$always -and !$smallOnly) { continue }
+            }
+            elseif ($smallOnly) { continue }
             # Optical correction: the monogram stays clear when Windows requests a tiny icon.
             if ($size -lt 32 -and $element.GetAttribute('data-detail') -eq 'true') { continue }
             $fill = ConvertTo-IconBrush $element.GetAttribute('fill')

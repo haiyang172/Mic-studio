@@ -9,6 +9,7 @@ Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test.ps1` from 
 - [x] Earlier deterministic verification passed Core, APO and WindowsAudio checks for filter response, dynamics, spectral suppression, state-preserving updates, presets, atomic recovery, guarded APO writes and audio queue/format contracts. No physical microphone was opened by those runs.
 - [x] Final functional run passed Core 28, APO 19, WindowsAudio 25 and Components 24, including the pinned component's actual installer signature without launching it. Native Setup's subsequent manifest-preservation changes passed 40 independent checks. Current results are recorded in `release-0.1.0.md`.
 - [x] 0.3.0 run passed Core 38, APO 20, WindowsAudio 39, Components 24 and Setup 40; WPF checks passed 43 control events with 27 Chinese and 27 English layouts and zero untranslated visible English text. Results are recorded in `p2-background.md`.
+- [x] 0.4.0 run passed Core 40, APO 20, WindowsAudio 39, Components 24 and Setup 40; WPF checks passed 47 control events with 27 Chinese and 27 English layouts and zero untranslated visible English text. Results are recorded in `p3-p5.md`.
 - [x] Release WPF build completed with restored locked dependencies, zero compiler warnings and zero errors on this machine.
 - [x] Self-contained `win-x64` EXE started on this Windows 11 x64 machine and loaded the bundled hostfxr/coreclr/WPF libraries; no developer SDK is used by the published process. A separate fresh-machine run remains pending.
 - [x] Published ZIP/setup checksums match `dist/SHA256SUMS.txt`; package excludes SDK, user audio, settings, logs and credentials. Standard VB-CABLE bytes match the pinned original SHA-256, retain attribution/donation links, and exclude A+B/C+D.
@@ -42,6 +43,15 @@ All automated audio samples are synthesized in memory or in temporary test stora
 - [ ] Enable sign-in launch, sign out/in Windows, and confirm Mic Studio starts in the tray without a main window. Separately enable automatic processing and confirm it starts only when a usable selected microphone exists.
 - [ ] Disable sign-in launch and verify the `MicStudio.Next` Run value is removed. Install, upgrade over a running/closed build and uninstall; confirm uninstall removes only Mic Studio's startup value and preserves personal settings, presets and recordings.
 - [ ] Switch Chinese/English during real processing: audio must not stop or change, all visible labels follow the choice, and the choice survives restart. Confirm Windows device names and third-party APO/installer text are shown as supplied.
+
+## Voice priority, pitch and creative themes (0.4.0 preview)
+
+- [ ] Speak normally, softly, with consonants and phrase endings while auto noise tracking is on. Confirm the noise estimate does not chase the voice or pump between phrases.
+- [ ] Test stationary fan/air-conditioner noise, typing while silent and typing while speaking. Record what the denoiser removes and what it cannot.
+- [ ] Select helium/loli/monster and confirm the pitch change is audible without dropouts, excessive grain, long latency or uncontrolled gain. These are delay-line pitch previews, not formant-preserving voice change.
+- [ ] Select phone/radio and explosion themes; check band-limited intelligibility, distortion, output ceiling and receiving-app level.
+- [ ] Combine a theme with EQ, compression, limiter and cable send; switch themes during running audio and confirm no long silence, pop or stuck state.
+- [ ] **AEC and room-reverb suppression are not implemented.** Do not mark them passed; a future build needs playback reference capture, double-talk testing and separate echo/reverb acceptance.
 
 
 ## Direct APO path

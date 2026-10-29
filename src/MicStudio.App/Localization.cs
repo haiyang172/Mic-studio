@@ -66,10 +66,14 @@ internal static class Loc
     public static string CreativeTheme(string id) => id switch
     {
         "warm" => T("温暖", "Warm"),
-        "crunch" => T("爆音", "Crunch"),
+        "crunch" => T("爆炸麦", "Boom"),
         "robot" => T("机器人", "Robot"),
         "echo" => T("回声", "Echo"),
         "space" => T("空间", "Space"),
+        "phone" => T("电话 / 电台", "Phone / radio"),
+        "helium" => T("氢气音", "Helium"),
+        "loli" => T("萝莉音", "Higher pitch"),
+        "monster" => T("怪兽 / 低沉", "Monster"),
         "custom" => T("自定义", "Custom"),
         _ => id
     };
