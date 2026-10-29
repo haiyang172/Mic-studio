@@ -17,9 +17,10 @@ public sealed class StudioViewModel : INotifyPropertyChanged
         var loaded = SettingsStore.Load<WorkspaceState>(Path.Combine(DataDirectory, "workspace.json"));
         State = loaded.Value;
         RecoveryWarning = loaded.Warning;
+        UiText.Set(State.Language);
         try
         {
-            if (State.SchemaVersion != 1 || State.Mode is < 0 or > 1 || State.Presets is null || State.Presets.Count > 200) throw new ArgumentException("工作区版本或数量无效。");
+            State.Normalize();
             State.Draft.Validate();
             foreach (var p in State.Presets) p.Validate();
             var creative = State.Draft.Creative;
@@ -33,8 +34,9 @@ public sealed class StudioViewModel : INotifyPropertyChanged
         {
             var path = Path.Combine(DataDirectory, "workspace.json");
             if (File.Exists(path)) File.Copy(path, path + ".invalid-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss"), true);
-            State = new(); RecoveryWarning = "设置未通过校验，原文件已保留。" + ex.Message;
+            State = new(); RecoveryWarning = UiText.T("设置未通过校验，原文件已保留。", "The settings did not pass validation; the original file was preserved. ") + ex.Message;
         }
+        UiText.Set(State.Language);
     }
     public void Change(Action<AudioSettings> action, bool coalesce = false)
     {

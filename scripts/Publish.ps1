@@ -59,6 +59,9 @@ try {
     if (Test-Path -LiteralPath $installerDoc) { Copy-Item -LiteralPath $installerDoc -Destination (Join-Path $published 'INSTALLER.md') }
     $componentDoc = Join-Path $workspace 'docs\architecture\components-vbcable.md'
     if (Test-Path -LiteralPath $componentDoc) { Copy-Item -LiteralPath $componentDoc -Destination (Join-Path $published 'COMPONENTS.md') }
+    $releaseNotes = Get-ChildItem -LiteralPath (Join-Path $workspace 'docs') -Filter 'release-*.md' -File |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($null -ne $releaseNotes) { Copy-Item -LiteralPath $releaseNotes.FullName -Destination (Join-Path $published 'RELEASE-NOTES.md') }
     # Preserve license/notice texts supplied by the actual Microsoft and NAudio packages.
     $nugetRoot = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.nuget\packages' }
     $noticeRoot = Join-Path $published 'licenses'

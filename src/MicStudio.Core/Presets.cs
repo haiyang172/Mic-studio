@@ -15,11 +15,11 @@ public sealed class SoundPreset
     public SoundPreset Clone() => new() { SchemaVersion = SchemaVersion, Id = Id, Name = Name, Description = Description, IsBuiltIn = IsBuiltIn, IsFavorite = IsFavorite, Settings = Settings.Clone() };
     public void Validate()
     {
-        if (SchemaVersion != 1) throw new ArgumentException("不支持此预设版本；旧版需要显式迁移。");
-        if (string.IsNullOrWhiteSpace(Id) || Id.Length > 80 || Id.Any(char.IsControl)) throw new ArgumentException("预设标识无效。");
-        if (string.IsNullOrWhiteSpace(Name) || Name.Length > 80 || Name.Any(char.IsControl)) throw new ArgumentException("预设名称应为 1–80 个字符。");
-        if (Description is null || Description.Length > 1000 || Description.Any(c => char.IsControl(c) && c is not '\r' and not '\n' and not '\t')) throw new ArgumentException("预设说明无效。");
-        if (Settings is null) throw new ArgumentException("预设没有参数。");
+        if (SchemaVersion != 1) throw new ArgumentException(UiText.T("不支持此预设版本；旧版需要显式迁移。", "This preset version is not supported; older presets need an explicit migration."));
+        if (string.IsNullOrWhiteSpace(Id) || Id.Length > 80 || Id.Any(char.IsControl)) throw new ArgumentException(UiText.T("预设标识无效。", "The preset identifier is invalid."));
+        if (string.IsNullOrWhiteSpace(Name) || Name.Length > 80 || Name.Any(char.IsControl)) throw new ArgumentException(UiText.T("预设名称应为 1–80 个字符。", "The preset name must be 1–80 characters."));
+        if (Description is null || Description.Length > 1000 || Description.Any(c => char.IsControl(c) && c is not '\r' and not '\n' and not '\t')) throw new ArgumentException(UiText.T("预设说明无效。", "The preset description is invalid."));
+        if (Settings is null) throw new ArgumentException(UiText.T("预设没有参数。", "The preset has no settings."));
         Settings.Validate();
     }
 }
@@ -57,16 +57,16 @@ public static class PresetStore
     public static SoundPreset ImportFile(string path)
     {
         var info = new FileInfo(path);
-        if (!info.Exists || info.Length is <= 0 or > MaxImportBytes) throw new ArgumentException("预设文件为空或超过 256 KB。");
+        if (!info.Exists || info.Length is <= 0 or > MaxImportBytes) throw new ArgumentException(UiText.T("预设文件为空或超过 256 KB。", "The preset file is empty or larger than 256 KB."));
         var bytes = File.ReadAllBytes(path);
-        if (bytes.Length > MaxImportBytes) throw new ArgumentException("预设文件超过 256 KB。");
+        if (bytes.Length > MaxImportBytes) throw new ArgumentException(UiText.T("预设文件超过 256 KB。", "The preset file is larger than 256 KB."));
         return ImportJson(Encoding.UTF8.GetString(bytes));
     }
 
     public static SoundPreset ImportJson(string json)
     {
-        if (Encoding.UTF8.GetByteCount(json) > MaxImportBytes) throw new ArgumentException("预设文件超过 256 KB。");
-        var portable = JsonSerializer.Deserialize<PortablePreset>(json, JsonDefaults.Options) ?? throw new ArgumentException("预设文件无效。");
+        if (Encoding.UTF8.GetByteCount(json) > MaxImportBytes) throw new ArgumentException(UiText.T("预设文件超过 256 KB。", "The preset file is larger than 256 KB."));
+        var portable = JsonSerializer.Deserialize<PortablePreset>(json, JsonDefaults.Options) ?? throw new ArgumentException(UiText.T("预设文件无效。", "The preset file is invalid."));
         var result = new SoundPreset { SchemaVersion = portable.SchemaVersion, Name = portable.Name, Description = portable.Description, Settings = portable.Settings, IsBuiltIn = false };
         result.Validate();
         return result;

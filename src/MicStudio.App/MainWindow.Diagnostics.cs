@@ -7,15 +7,36 @@ public partial class MainWindow
 {
     private string DiagnosticSummary()
     {
-        var permission = new System.Security.Principal.WindowsPrincipal(System.Security.Principal.WindowsIdentity.GetCurrent()).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator) ? "管理员" : "普通权限";
-        return $"Mic Studio {ProductVersion} · 本地诊断摘要\n时间：{DateTimeOffset.Now:yyyy-MM-dd HH:mm zzz}\n系统：{Environment.OSVersion.VersionString}\n权限：{permission}\n\n" +
-            $"工作路线：{(LocalMode ? "本地 DSP" : "APO 直接输入")}\n已连接录音设备：{inputs.Count(d => d.IsActive)}\n所选设备：{(SelectedInput?.IsActive == true ? "已连接" : "未连接")}\n采样率：{SampleRate} Hz\n" +
-            $"APO：{(apo.Found ? "组件已检测 " + apo.Version : "未检测到")}\nAPO 音频生效：待验证\nCABLE 发送端：{outputs.Count(d => d.IsActive && d.IsCableSend)}\nCABLE 接收端：{inputs.Count(d => d.IsActive && d.IsCableReceive)}\n" +
-            $"本地采集：{(engine.IsRunning ? "运行中" : "关闭")}\n录音：{(engine.IsRecording ? "进行中" : "关闭")}\n渲染缓冲重置计数：{engine.OutputBufferResets}\n" +
-            $"当前测量：{(lastMeter == null ? "—" : "输入峰值 " + lastMeter.InputPeakDb.ToString("0.0") + " dBFS / 本地输出 " + lastMeter.OutputPeakDb.ToString("0.0") + " dBFS")}\n" +
-            $"算法缓冲：{(LocalMode && applied.Denoise.Enabled ? 512000.0 / SampleRate : 0):0.00} ms（仅降噪算法，不是端到端延迟）\n" +
-            "接收软件音频：待实际确认\n\n" +
-            "已脱敏：用户名、设备名称与唯一标识、路径与录音。\n此摘要不构成音质或接收软件验收。";
+        var permission = new System.Security.Principal.WindowsPrincipal(System.Security.Principal.WindowsIdentity.GetCurrent()).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator)
+            ? Loc.T("管理员", "Administrator") : Loc.T("普通权限", "Standard user");
+        var route = LocalMode ? Loc.T("本地 DSP", "Local DSP") : Loc.T("APO 直接输入", "APO direct input");
+        var apoText = apo.Found ? Loc.F("组件已检测 {0}", "Component detected {0}", apo.Version) : Loc.T("未检测到", "Not found");
+        var selected = SelectedInput?.IsActive == true ? Loc.T("已连接", "Connected") : Loc.T("未连接", "Not connected");
+        var capture = engine.IsRunning ? Loc.T("运行中", "Running") : Loc.T("关闭", "Off");
+        var recording = engine.IsRecording ? Loc.T("进行中", "Active") : Loc.T("关闭", "Off");
+        var meter = lastMeter == null
+            ? "—"
+            : Loc.F("输入峰值 {0:0.0} dBFS / 本地输出 {1:0.0} dBFS", "Input peak {0:0.0} dBFS / local output {1:0.0} dBFS", lastMeter.InputPeakDb, lastMeter.OutputPeakDb);
+        var algorithmMs = LocalMode && applied.Denoise.Enabled ? 512000.0 / SampleRate : 0;
+        return Loc.F(
+            "Mic Studio {0} · 本地诊断摘要\n时间：{1}\n系统：{2}\n权限：{3}\n\n" +
+            "工作路线：{4}\n已连接录音设备：{5}\n所选设备：{6}\n采样率：{7} Hz\n" +
+            "APO：{8}\nAPO 音频生效：{9}\nCABLE 发送端：{10}\nCABLE 接收端：{11}\n" +
+            "本地采集：{12}\n录音：{13}\n渲染缓冲重置计数：{14}\n" +
+            "当前测量：{15}\n算法缓冲：{16:0.00} ms（仅降噪算法，不是端到端延迟）\n" +
+            "接收软件音频：{17}\n\n" +
+            "已脱敏：用户名、设备名称与唯一标识、路径与录音。\n此摘要不构成音质或接收软件验收。",
+            "Mic Studio {0} · Local diagnostics\nTime: {1}\nOS: {2}\nRights: {3}\n\n" +
+            "Route: {4}\nConnected recording devices: {5}\nSelected device: {6}\nSample rate: {7} Hz\n" +
+            "APO: {8}\nAPO audio active: {9}\nCABLE send endpoints: {10}\nCABLE receive endpoints: {11}\n" +
+            "Local capture: {12}\nRecording: {13}\nRender buffer resets: {14}\n" +
+            "Current measurement: {15}\nAlgorithm buffer: {16:0.00} ms (denoiser only, not end-to-end latency)\n" +
+            "Receiving app audio: {17}\n\n" +
+            "Redacted: user names, device names and identifiers, paths and recordings.\nThis summary is not audio-quality or receiving-app acceptance.",
+            ProductVersion, DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm zzz"), Environment.OSVersion.VersionString, permission,
+            route, inputs.Count(d => d.IsActive), selected, SampleRate,
+            apoText, Loc.T("待验证", "Not verified"), outputs.Count(d => d.IsActive && d.IsCableSend), inputs.Count(d => d.IsActive && d.IsCableReceive),
+            capture, recording, engine.OutputBufferResets, meter, algorithmMs, Loc.T("待实际确认", "Pending real verification"));
     }
     private void BuildDiagnostics()
     {
@@ -36,10 +57,34 @@ public partial class MainWindow
     private void BuildSettings()
     {
         Header("MAKE IT YOURS / 07", "工作台，也按你的习惯。", "参数本地保存，启动不自动开启麦克风、录音、监听或虚拟线路。", false);
-        Add(Card("外观", "石墨色与浅色主题；界面随窗口宽度折叠导航。", Buttons(B("石墨色", () => { State.Theme = "dark"; ApplyTheme(); SaveSoon(); ShowPage(6); }), B("浅色", () => { State.Theme = "light"; ApplyTheme(); SaveSoon(); ShowPage(6); })), T("界面语言：简体中文。英文界面尚未提供。", 11, Muted)));
-        Add(Card("关闭行为", "默认关闭窗口即停止本地音频。APO 系统配置可能继续生效。", Toggle("关闭到托盘，保持当前本地音频运行", State.MinimizeToTray, value => { State.MinimizeToTray = value; if (value) EnsureTray(); SaveSoon(); }), T("启用后，托盘菜单可随时停止音频或退出。程序重新启动仍不会自动采集。", 11, Muted), B("立即停止本地音频", StopAudio)));
+        Add(Card("外观", "石墨色与浅色主题；界面随窗口宽度折叠导航。",
+            Buttons(
+                B("石墨色", () => { State.Theme = "dark"; ApplyTheme(); SaveSoon(); ShowPage(6); }, State.Theme != "light"),
+                B("浅色", () => { State.Theme = "light"; ApplyTheme(); SaveSoon(); ShowPage(6); }, State.Theme == "light")),
+            T("界面语言", 12, Muted),
+            Buttons(
+                B("简体中文", () => SetLanguage(UiText.Chinese), State.Language == UiText.Chinese),
+                B("English", () => SetLanguage(UiText.English), State.Language == UiText.English))));
+        Add(Card("启动与后台", "关闭窗口默认收进托盘并继续运行；托盘可随时停止或退出。",
+            Toggle("关闭到托盘，保持当前本地音频运行", State.MinimizeToTray, value => { State.MinimizeToTray = value; if (value) EnsureTray(); else if (!startHidden) { tray?.Dispose(); tray = null; trayIcon?.Dispose(); trayIcon = null; trayProcessingItem = null; } SaveSoon(); }),
+            T("启用后，托盘菜单可随时停止音频或退出。程序重新启动仍不会自动采集。", 11, Muted),
+            Toggle("登录 Windows 后启动 Mic Studio", State.LaunchAtLogin, value =>
+            {
+                if (!StartupRegistration.TryApply(value, out var error))
+                {
+                    Notice(Loc.T("启动项读取或写入失败；当前设置未更改。", "The startup entry could not be read or written; the setting was not changed.") + (string.IsNullOrWhiteSpace(error) ? "" : " " + error));
+                    ShowPage(6);
+                    return;
+                }
+                State.LaunchAtLogin = value;
+                SaveSoon(); ShowPage(6);
+            }),
+            T("开启后登录时进入托盘，不自动打开主窗口。", 11, Muted),
+            Toggle("登录启动后自动开始处理", State.AutoStartProcessing, value => { State.AutoStartProcessing = value; SaveSoon(); }, enabled: State.LaunchAtLogin && LocalMode),
+            T("只有开启登录启动时生效；不会改变手动启动行为。", 11, Muted),
+            Buttons(B("立即停止本地音频", StopAudio))));
         Add(Card("管理员操作", "日常使用普通权限。只有安装/绑定组件或写受保护 APO 文件才需要 UAC。", B("请求管理员启动", RestartElevated), T("重新启动会停止采集并保留草稿。Windows UAC 由你确认；取消后继续使用当前窗口。不会放宽 Program Files 权限。", 11, Muted)));
-        Add(Card("本地数据", "预设与草稿不上传；私人录音由用户自行选择保存位置。", Buttons(B("打开个人数据目录", () => { Directory.CreateDirectory(StudioViewModel.DataDirectory); Open(StudioViewModel.DataDirectory); }), B("另存当前声音", SavePreset)), T("Ctrl+S 另存预设。编辑数值后按 Enter 或移开焦点提交。", 11, Muted)));
+        Add(Card("本地数据", "预设与草稿不上传；私人录音由用户自行选择保存位置。", Buttons(B("打开个人数据目录", () => { Directory.CreateDirectory(StudioViewModel.DataDirectory); Open(StudioViewModel.DataDirectory); }), B("另存当前声音", SavePreset)), T("参数、主题与设备选择会自动保存，手动启动不会自动打开麦克风。Ctrl+S 另存预设。", 11, Muted)));
         Add(Card("组件", "NAudio 2.3.0 · .NET 10 · Windows WASAPI", Buttons(B("驱动管理", () => ShowPage(4)), B("Equalizer APO", () => Open("https://sourceforge.net/p/equalizerapo/wiki/Documentation/")))));
     }
 }

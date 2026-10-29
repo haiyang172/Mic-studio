@@ -4,7 +4,7 @@
   <Border Background="{DynamicResource SidebarBg}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,1,0">
    <DockPanel>
     <StackPanel x:Name="BrandHeader" DockPanel.Dock="Top" Orientation="Horizontal" Margin="18,24,14,24"><Image x:Name="BrandIcon" Source="Assets/mic-studio.png" Width="32" Height="32" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" ToolTip="Mic Studio"/><StackPanel x:Name="BrandText" Margin="10,0,0,0" VerticalAlignment="Center"><TextBlock x:Name="Brand" Text="Mic Studio" FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"/><TextBlock x:Name="BrandCaption" Visibility="Collapsed"/></StackPanel></StackPanel>
-    <StackPanel DockPanel.Dock="Bottom" Margin="20,18"><TextBlock x:Name="SideCaption" Visibility="Collapsed"/><TextBlock x:Name="SideVersion" Text="0.1.1" FontSize="11" Foreground="{DynamicResource SidebarInk}"/></StackPanel>
+    <StackPanel DockPanel.Dock="Bottom" Margin="20,18"><TextBlock x:Name="SideCaption" Visibility="Collapsed"/><TextBlock x:Name="SideVersion" Text="0.3.0" FontSize="11" Foreground="{DynamicResource SidebarInk}"/></StackPanel>
     <StackPanel x:Name="Navigation"/>
    </DockPanel>
   </Border>
@@ -12,9 +12,9 @@
    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
    <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="24,15,16,7">
     <WrapPanel VerticalAlignment="Center">
-     <StackPanel Margin="0,0,12,8"><TextBlock Text="输入设备" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,5"/><ComboBox x:Name="InputPicker" Width="310" DisplayMemberPath="DisplayName" ToolTip="按端点 ID 保存。"/></StackPanel>
-     <StackPanel Margin="0,0,12,8"><TextBlock Text="处理方式" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,5"/><ComboBox x:Name="ModePicker" Width="174"><ComboBoxItem Content="系统输入 · APO"/><ComboBoxItem Content="虚拟输入 · CABLE"/></ComboBox></StackPanel>
-     <StackPanel Margin="0,0,0,8"><TextBlock Text="效果" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,5"/><Button x:Name="BypassButton" Content="效果开关：开" Padding="13,8" Margin="0" ToolTip="控制增益、EQ 和声音效果；与麦克风静音分开。"/></StackPanel>
+     <StackPanel Margin="0,0,12,8"><TextBlock x:Name="InputDeviceLabel" Text="输入设备" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,5"/><ComboBox x:Name="InputPicker" Width="310" DisplayMemberPath="DisplayName" ToolTip="按端点 ID 保存。"/></StackPanel>
+     <StackPanel Margin="0,0,12,8"><TextBlock x:Name="ModeLabel" Text="处理方式" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,5"/><ComboBox x:Name="ModePicker" Width="174"><ComboBoxItem Content="系统输入 · APO"/><ComboBoxItem Content="虚拟输入 · CABLE"/></ComboBox></StackPanel>
+     <StackPanel Margin="0,0,0,8"><TextBlock x:Name="EffectLabel" Text="效果" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,5"/><Button x:Name="BypassButton" Content="效果开关：开" Padding="13,8" Margin="0" ToolTip="控制增益、EQ 和声音效果；与麦克风静音分开。"/></StackPanel>
     </WrapPanel>
    </Border>
    <Border Grid.Row="1" Background="{DynamicResource NoticeBg}" x:Name="NoticeBar" Visibility="Collapsed" Padding="24,10"><DockPanel><Button DockPanel.Dock="Right" Content="×" Padding="8,0" Margin="8,0,0,0" Click="DismissNotice"/><TextBlock x:Name="NoticeText" Foreground="{DynamicResource Accent}"/></DockPanel></Border>

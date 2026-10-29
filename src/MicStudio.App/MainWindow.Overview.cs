@@ -30,10 +30,15 @@ public partial class MainWindow
         var quick = new WrapPanel();
         foreach (var button in new[] { B("均衡器", () => ShowPage(1)), B("效果", () => ShowPage(2)), B("另存预设", SavePreset), B("连接", () => ShowPage(4)) }) quick.Children.Add(button);
         var route = CableRouteResolver.Resolve(inputs, outputs, State.CableOutputId);
-        var tone = Card("音色", null, BuildPresetSelector(false), quick, T(LocalMode ? route.IsReady ? "其他软件的输入选：" + route.Receive!.Name : "虚拟线路未就绪，可在设备页检查驱动" : "系统 APO 需在设备页更新配置", 13, route.IsReady || !LocalMode ? Accent : Amber));
+        var routeText = LocalMode
+            ? route.IsReady
+                ? Loc.T("其他软件的输入选：", "In the other app, select input: ") + route.Receive!.Name
+                : Loc.T("虚拟线路未就绪，可在设备页检查驱动", "Virtual cable is not ready; check the driver on Devices")
+            : Loc.T("系统 APO 需在设备页更新配置", "Update the system APO configuration on Devices");
+        var tone = Card("音色", null, BuildPresetSelector(false), quick, T(routeText, 13, route.IsReady || !LocalMode ? Accent : Amber));
         Add(tone);
-        Add(new Expander { Header = "增益校准", Foreground = Ink, Content = CalibrationControls(), Margin = new(0, 4, 0, 6) });
-        Add(new Expander { Header = "录音与比较", Foreground = Ink, Content = RecordingControls(), Margin = new(0, 6, 0, 6) });
+        Add(new Expander { Header = Loc.T("增益校准", "Gain calibration"), Foreground = Ink, Content = CalibrationControls(), Margin = new(0, 4, 0, 6) });
+        Add(new Expander { Header = Loc.T("录音与比较", "Recording and comparison"), Foreground = Ink, Content = RecordingControls(), Margin = new(0, 6, 0, 6) });
     }
 
     private void AdaptiveCards(params Border[] cards)
@@ -65,12 +70,12 @@ public partial class MainWindow
             var peak = meter.Output ? m.OutputPeakDb : m.InputPeakDb;
             var rms = meter.Output ? m.OutputRmsDb : m.InputRmsDb;
             meter.Text.Text = (peak <= -150 ? "−∞" : peak.ToString("0.0")) + " dBFS";
-            meter.Text.ToolTip = $"峰值 {peak:0.0} dBFS / RMS {rms:0.0} dBFS；{m.SampleRate} Hz / {m.Channels}ch";
+            meter.Text.ToolTip = Loc.F("峰值 {0:0.0} dBFS / RMS {1:0.0} dBFS；{2} Hz / {3}ch", "Peak {0:0.0} dBFS / RMS {1:0.0} dBFS; {2} Hz / {3}ch", peak, rms, m.SampleRate, m.Channels);
             meter.Text.Foreground = peak > -1 ? Amber : Accent;
             meter.Bar.Value = Math.Clamp(peak, -60, 0);
         }
         if (calibrating && m.InputPeakDb > -65 && double.IsFinite(m.InputPeakDb)) calibrationPeaks.Add(LocalMode ? m.InputPeakDb : m.OutputPeakDb);
-        CaptureFooter.Text = (LocalMode ? "●  处理中" : "●  测量中") + (m.ClippedSamples > 0 ? " · 检测到削波" : "");
+        CaptureFooter.Text = (LocalMode ? Loc.T("●  处理中", "●  Processing") : Loc.T("●  测量中", "●  Measuring")) + (m.ClippedSamples > 0 ? Loc.T(" · 检测到削波", " · Clipping detected") : "");
     }
     private UIElement SessionControls()
     {
@@ -81,7 +86,7 @@ public partial class MainWindow
     }
     private void UpdateLiveLabels()
     {
-        foreach (var label in liveLabels) label.Text = engine.IsRunning ? engine.IsRecording ? "正在录音" : "运行中" : "未运行";
+        foreach (var label in liveLabels) label.Text = engine.IsRunning ? engine.IsRecording ? Loc.T("正在录音", "Recording") : Loc.T("运行中", "Running") : Loc.T("未运行", "Not running");
     }
     private UIElement CalibrationControls()
     {
@@ -91,7 +96,7 @@ public partial class MainWindow
             if (suggestedGain is null) { Notice("请先正常讲话校准。噪声或静音不足以确定合适的增益。"); return; }
             vm.Change(s => s.InputGainDb = suggestedGain.Value); ShowPage(currentPage); Notice(engine.IsRunning ? "已采用建议增益，声音实时更新。" : "已采用建议增益，下次开始时使用。");
         })));
-        if (suggestedGain is { } suggested) p.Children.Add(T($"建议：{suggested:+0.0;-0.0;0} dB", 13, Accent));
+        if (suggestedGain is { } suggested) p.Children.Add(T(Loc.F("建议：{0:+0.0;-0.0;0} dB", "Suggestion: {0:+0.0;-0.0;0} dB", suggested), 13, Accent));
         return p;
     }
     private void BeginCalibration()
@@ -117,7 +122,9 @@ public partial class MainWindow
         var speechPeak = calibrationPeaks[(int)Math.Floor((calibrationPeaks.Count - 1) * .9)];
         suggestedGain = Math.Round(Math.Clamp(-12 - speechPeak, -24, 30), 1);
         ShowPage(currentPage);
-        Notice($"测得较响讲话峰值约 {speechPeak:0.0} dBFS；建议输入增益 {suggestedGain:+0.0;-0.0;0} dB。点击“采用建议”使用，真实听感仍需试听。");
+        Notice(Loc.F("测得较响讲话峰值约 {0:0.0} dBFS；建议输入增益 {1:+0.0;-0.0;0} dB。点击“采用建议”使用，真实听感仍需试听。",
+            "Loud speech peaked around {0:0.0} dBFS; suggested input gain {1:+0.0;-0.0;0} dB. Click “Use suggestion”; still verify by listening.",
+            speechPeak, suggestedGain));
     }
     private UIElement RecordingControls()
     {
@@ -125,7 +132,7 @@ public partial class MainWindow
         p.Children.Add(Buttons(B("录制短试听 · 30 秒", () =>
         {
             if (!engine.IsRunning) { Notice("请先开始电平测试或发送线路。"); return; }
-            var dialog = new Microsoft.Win32.SaveFileDialog { Title = "保存本地短录音", Filter = "WAV 音频|*.wav", FileName = "MicStudio-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".wav" };
+            var dialog = new Microsoft.Win32.SaveFileDialog { Title = Loc.T("保存本地短录音", "Save local short recording"), Filter = Loc.T("WAV 音频|*.wav", "WAV audio|*.wav"), FileName = "MicStudio-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".wav" };
             if (dialog.ShowDialog(this) == true) { if (File.Exists(dialog.FileName)) { Notice("请使用新的文件名，防止覆盖已有录音。"); return; } engine.StartRecording(dialog.FileName, 30); Notice("正在录制当前采集路径，最长 30 秒。录音仅保存本机。"); UpdateLiveLabels(); }
         }), B("结束录音", engine.StopRecording), B("用耳机回放", () =>
         {
@@ -136,7 +143,7 @@ public partial class MainWindow
         p.Children.Add(Buttons(B("录制 A/B 源 · 30 秒", () =>
         {
             if (!engine.IsRunning) { Notice("先开始处理或测量。"); return; }
-            var d = new Microsoft.Win32.SaveFileDialog { Title = "保存 DSP 前的比较源", Filter = "WAV|*.wav", FileName = "MicStudio-source-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".wav" };
+            var d = new Microsoft.Win32.SaveFileDialog { Title = Loc.T("保存 DSP 前的比较源", "Save the pre-DSP comparison source"), Filter = "WAV|*.wav", FileName = "MicStudio-source-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".wav" };
             if (d.ShowDialog(this) != true) return;
             comparison = null; engine.StartRecording(d.FileName, 30, recordSource: true); Notice("正在录制比较源，最长 30 秒。");
         }), AsyncB("生成同源 A/B", async () =>
@@ -144,12 +151,12 @@ public partial class MainWindow
             if (engine.IsRunning) { Notice("先停止采集。"); return; }
             var source = engine.LastRecordingPath;
             if (source is null || !engine.LastRecordingCapturedBeforeLocalDsp) { Notice("先录制 A/B 源音频；已处理的录音不重复处理。"); return; }
-            var d = new Microsoft.Win32.SaveFileDialog { Title = "保存 A/B 处理后音频", Filter = "WAV|*.wav", FileName = "MicStudio-comparison.wav" };
+            var d = new Microsoft.Win32.SaveFileDialog { Title = Loc.T("保存 A/B 处理后音频", "Save the processed A/B audio"), Filter = "WAV|*.wav", FileName = "MicStudio-comparison.wav" };
             if (d.ShowDialog(this) != true) return;
             var result = await OfflineAudioProcessor.ProcessFileAsync(source, d.FileName, Draft.Clone(), true, cancellationToken: lifetime.Token);
             if (closed) return;
             comparison = result;
-            Notice((result.LoudnessMatched ? "A/B 已生成：同一次录音，整段 RMS 匹配（非 LUFS）。" : "A/B 已生成；接近静音，未作 RMS 匹配。") + result.Warning);
+            Notice((result.LoudnessMatched ? Loc.T("A/B 已生成：同一次录音，整段 RMS 匹配（非 LUFS）。", "A/B created from one recording with whole-file RMS matching (not LUFS).") : Loc.T("A/B 已生成；接近静音，未作 RMS 匹配。", "A/B created; the recording was near silence, so RMS was not matched.")) + result.Warning);
         }), B("A · 参考", () => PlayComparison(false)), B("B · 效果", () => PlayComparison(true))));
         return p;
     }

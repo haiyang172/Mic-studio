@@ -42,13 +42,13 @@ public partial class MainWindow
         details.Children.Add(BuildCreativeDetails(enabled));
         details.Children.Add(Card("限幅保护", "采样峰值保护，不能恢复麦克风硬件已经削波的声音。",
             Parameter("释放", 10, 1000, Draft.Limiter.ReleaseMs, v => vm.Change(s => s.Limiter.ReleaseMs = v, true), "ms", 1, enabled)));
-        Add(new Expander { Header = "高级功能", Foreground = Ink, Content = details, Margin = new Thickness(0, 8, 0, 14) });
+        Add(new Expander { Header = Loc.T("高级功能", "Advanced"), Foreground = Ink, Content = details, Margin = new Thickness(0, 8, 0, 14) });
     }
 
     private Border BuildCreativeCard(bool enabled)
     {
         var active = CreativeEnabled(Draft.Creative);
-        var themes = new (string Id, string Name)[] { ("warm", "温暖"), ("crunch", "爆音"), ("robot", "机器人"), ("echo", "回声"), ("space", "空间"), ("custom", "自定义") };
+        var themes = new (string Id, string Name)[] { ("warm", Loc.CreativeTheme("warm")), ("crunch", Loc.CreativeTheme("crunch")), ("robot", Loc.CreativeTheme("robot")), ("echo", Loc.CreativeTheme("echo")), ("space", Loc.CreativeTheme("space")), ("custom", Loc.CreativeTheme("custom")) };
         var picker = new ComboBox { MinWidth = 150, Margin = new Thickness(0, 4, 0, 12), IsEnabled = enabled };
         foreach (var theme in themes) picker.Items.Add(new ComboBoxItem { Content = theme.Name, Tag = theme.Id });
         picker.SelectedIndex = Math.Max(0, Array.FindIndex(themes, t => t.Id == State.CreativeThemeId));

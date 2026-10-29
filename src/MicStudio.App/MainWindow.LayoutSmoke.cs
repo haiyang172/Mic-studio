@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Windows.Media.Imaging;
 using System.Windows.Automation;
 using MicStudio.Core;
+using MicStudio.WindowsAudio;
 
 namespace MicStudio.App;
 
@@ -28,8 +29,8 @@ public partial class MainWindow
                 PageScroll.ScrollToEnd(); await Dispatcher.InvokeAsync(() => UpdateLayout(), DispatcherPriority.Render);
                 var reachable = PageScroll.ExtentHeight <= PageScroll.ViewportHeight + 3 || Math.Abs(PageScroll.VerticalOffset - PageScroll.ScrollableHeight) < 3;
                 PageScroll.ScrollToTop(); await Dispatcher.InvokeAsync(() => UpdateLayout(), DispatcherPriority.Render);
-                results.Add(new { size.W, size.H, Page = pageNames[page], Advanced = details, PageContent.ActualWidth, PageScroll.ViewportWidth, PageScroll.ExtentHeight, PageScroll.ViewportHeight, ScrollReachable = reachable, RightOverflow = rightOverflow, Buttons = buttons });
-                if (!reachable || rightOverflow) throw new InvalidOperationException($"窗口内容无法完整访问：{pageNames[page]} {size.W}x{size.H} advanced={details}; width={PageContent.ActualWidth:0.0}, viewport={PageScroll.ViewportWidth:0.0}; scroll={reachable}");
+                results.Add(new { size.W, size.H, Page = PageNames[page], Advanced = details, PageContent.ActualWidth, PageScroll.ViewportWidth, PageScroll.ExtentHeight, PageScroll.ViewportHeight, ScrollReachable = reachable, RightOverflow = rightOverflow, Buttons = buttons });
+                if (!reachable || rightOverflow) throw new InvalidOperationException($"窗口内容无法完整访问：{PageNames[page]} {size.W}x{size.H} advanced={details}; width={PageContent.ActualWidth:0.0}, viewport={PageScroll.ViewportWidth:0.0}; scroll={reachable}");
                 var visual = (Visual)Content;
                 var bitmap = new RenderTargetBitmap((int)((FrameworkElement)Content).ActualWidth, (int)((FrameworkElement)Content).ActualHeight, 96, 96, PixelFormats.Pbgra32); bitmap.Render(visual);
                 var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
@@ -46,7 +47,101 @@ public partial class MainWindow
             var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(light));
             using var file = File.Create(Path.Combine(directory, $"light-{page + 1}.png")); encoder.Save(file);
         }
+        RunEnglishUiCheck(directory);
         forceClose = true;
+    }
+
+    /// <summary>
+    /// Walks the real English UI and records any remaining Chinese text. This is a
+    /// presentation check only; it does not start audio or change user files.
+    /// </summary>
+    private void RunEnglishUiCheck(string directory)
+    {
+        var missing = new List<object>();
+        var pages = new List<object>();
+        void Inspect(string? text, string where)
+        {
+            if (string.IsNullOrWhiteSpace(text) || !text.Any(IsHan)) return;
+            missing.Add(new { where, text });
+        }
+        static bool IsHan(char c) => c is >= '\u3400' and <= '\u9FFF' or >= '\uF900' and <= '\uFAFF';
+        SetLanguage(UiText.English);
+        NoticeBar.Visibility = Visibility.Collapsed;
+        for (var page = 0; page < 7; page++)
+        {
+            ShowPage(page);
+            foreach (var details in page is 1 or 2 ? new[] { false, true } : new[] { false })
+            {
+                foreach (var expander in Descendants<Expander>(PageContent).Where(e => e.Header as string == Loc.T("高级功能", "Advanced"))) expander.IsExpanded = details;
+                UpdateLayout();
+                foreach (var text in Descendants<TextBlock>(PageContent))
+                {
+                    if (text.DataContext is AudioDeviceInfo) continue;
+                    Inspect(text.Text, $"page {page} advanced={details} TextBlock");
+                }
+                foreach (var button in Descendants<System.Windows.Controls.Button>(PageContent)) Inspect(button.Content as string, $"page {page} advanced={details} Button");
+                foreach (var check in Descendants<CheckBox>(PageContent)) Inspect((check.Content as TextBlock)?.Text, $"page {page} advanced={details} CheckBox");
+                foreach (var expander in Descendants<Expander>(PageContent)) Inspect(expander.Header as string, $"page {page} advanced={details} Expander");
+            }
+            pages.Add(new { page, Name = Loc.PageName(page) });
+        }
+        Inspect(Title, "window title");
+        Inspect(InputDeviceLabel.Text, "input label");
+        Inspect(ModeLabel.Text, "mode label");
+        Inspect(EffectLabel.Text, "effect label");
+        Inspect(BypassButton.Content as string, "effects switch");
+        Inspect(CaptureFooter.Text, "capture footer");
+        Inspect(ConfigFooter.Text, "config footer");
+        foreach (System.Windows.Controls.Button button in Navigation.Children)
+            if (button.Content is StackPanel panel && panel.Children.Count > 1 && panel.Children[1] is TextBlock label) Inspect(label.Text, "navigation");
+        if (ModePicker.Items.Count >= 2)
+        {
+            Inspect((ModePicker.Items[0] as ComboBoxItem)?.Content as string, "mode item 0");
+            Inspect((ModePicker.Items[1] as ComboBoxItem)?.Content as string, "mode item 1");
+        }
+        if (NoticeBar.Visibility == Visibility.Visible) Inspect(NoticeText.Text, "notice");
+
+        Width = 1280; Height = 820;
+        State.Theme = "dark"; ApplyTheme();
+        var englishLayouts = new List<object>();
+        var englishFailures = 0;
+        foreach (var size in new[] { (W: 1280, H: 820), (W: 900, H: 600), (W: 600, H: 500) })
+        {
+            Width = Math.Min(size.W, SystemParameters.WorkArea.Width); Height = Math.Min(size.H, SystemParameters.WorkArea.Height);
+            for (var page = 0; page < 7; page++)
+            {
+                foreach (var details in page is 1 or 2 ? new[] { false, true } : new[] { false })
+                {
+                    ShowPage(page);
+                    foreach (var expander in Descendants<Expander>(PageContent).Where(e => e.Header as string == Loc.T("高级功能", "Advanced"))) expander.IsExpanded = details;
+                    UpdateLayout();
+                    var rightOverflow = PageContent.ActualWidth > PageScroll.ViewportWidth + 3;
+                    PageScroll.ScrollToEnd(); UpdateLayout();
+                    var reachable = PageScroll.ExtentHeight <= PageScroll.ViewportHeight + 3 || Math.Abs(PageScroll.VerticalOffset - PageScroll.ScrollableHeight) < 3;
+                    PageScroll.ScrollToTop(); UpdateLayout();
+                    if (rightOverflow || !reachable) englishFailures++;
+                    englishLayouts.Add(new { size.W, size.H, Page = Loc.PageName(page), Advanced = details, RightOverflow = rightOverflow, ScrollReachable = reachable });
+                    if (size.W == 1280 && !details)
+                    {
+                        var bitmap = new RenderTargetBitmap((int)((FrameworkElement)Content).ActualWidth, (int)((FrameworkElement)Content).ActualHeight, 96, 96, PixelFormats.Pbgra32); bitmap.Render((Visual)Content);
+                        var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                        using var file = File.Create(Path.Combine(directory, $"en-{page + 1}.png")); encoder.Save(file);
+                    }
+                }
+            }
+        }
+        Width = 1280; Height = 820;
+        foreach (var page in new[] { 0, 1, 2, 3, 4, 5, 6 }) { ShowPage(page); UpdateLayout(); foreach (var text in Descendants<TextBlock>(PageContent)) { if (text.DataContext is AudioDeviceInfo) continue; Inspect(text.Text, $"page {page} screenshot TextBlock"); } foreach (var button in Descendants<System.Windows.Controls.Button>(PageContent)) Inspect(button.Content as string, $"page {page} screenshot Button"); }
+        SetLanguage(UiText.Chinese);
+        File.WriteAllText(Path.Combine(directory, "english-ui.json"), JsonSerializer.Serialize(new
+        {
+            Method = "Actual WPF pages rebuilt in en-US; all TextBlock/Button/CheckBox/Expander labels and shell text inspected for Han characters. Device names supplied by the OS are excluded.",
+            Pages = pages,
+            ChineseTextCount = missing.Count,
+            Missing = missing,
+            Layouts = englishLayouts,
+            LayoutFailures = englishFailures
+        }, new JsonSerializerOptions { WriteIndented = true }));
     }
     private void RunControlEventChecks(string directory)
     {
@@ -135,6 +230,40 @@ public partial class MainWindow
         Check(!engine.IsRunning, "Automatic cable connection cannot substitute an unavailable selected microphone");
         FlushLiveSettings(); Check(!engine.IsRunning && !engine.IsRecording && !monitor, "Edits, presets, restore and pending live flush never open stopped audio");
         State.Presets.Remove(personal); RestoreDefaults(); ShowPage(0); NoticeBar.Visibility = Visibility.Collapsed;
+
+        Check(State.MinimizeToTray && State.SchemaVersion == WorkspaceState.CurrentSchemaVersion, "New workspace closes to tray by default");
+        var legacy = new WorkspaceState { SchemaVersion = 1, MinimizeToTray = false, Language = "xx-XX" };
+        legacy.Normalize();
+        Check(legacy.SchemaVersion == 2 && legacy.MinimizeToTray && legacy.Language == UiText.Chinese, "P1 workspace migrates to tray default and a supported language");
+
+        State.LaunchAtLogin = true; State.AutoStartProcessing = true; State.Language = UiText.Chinese; vm.Save();
+        var preferenceReload = new StudioViewModel();
+        Check(preferenceReload.State.LaunchAtLogin && preferenceReload.State.AutoStartProcessing, "Startup preferences persist separately from audio parameters");
+        State.LaunchAtLogin = false; State.AutoStartProcessing = false; vm.Save();
+
+        ShowPage(6); UpdateLayout();
+        var englishButton = Descendants<System.Windows.Controls.Button>(PageContent).Single(b => b.Content as string == "English");
+        englishButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+        Check(UiText.IsEnglish && State.Language == UiText.English, "Language button switches the live interface and preference");
+        vm.Save(); var languageReload = new StudioViewModel();
+        Check(languageReload.State.Language == UiText.English, "Language choice survives a workspace reload");
+        string NavLabel(int index) => ((Navigation.Children[index] as System.Windows.Controls.Button)?.Content as StackPanel)?.Children[1] is TextBlock text ? text.Text : "";
+        Check(NavLabel(0) == "Microphone", "Navigation rebuilds in English");
+        ShowPage(6); UpdateLayout();
+        var chineseButton = Descendants<System.Windows.Controls.Button>(PageContent).Single(b => b.Content as string == "Chinese");
+        chineseButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+        Check(!UiText.IsEnglish && State.Language == UiText.Chinese && NavLabel(0) == "麦克风", "Language can be switched back without touching audio settings");
+
+        EnsureTray();
+        var activeTray = tray ?? throw new InvalidOperationException("Tray icon was not created.");
+        Check(activeTray.ContextMenuStrip?.Items.OfType<System.Windows.Forms.ToolStripMenuItem>().Any(i => i.Text == "继续处理") == true, "Tray exposes resume while audio is stopped");
+        Check(activeTray.ContextMenuStrip!.Items.OfType<System.Windows.Forms.ToolStripMenuItem>().Any(i => i.Text == "打开 Mic Studio"), "Tray can reopen the window");
+        Check(activeTray.ContextMenuStrip.Items.OfType<System.Windows.Forms.ToolStripMenuItem>().Any(i => i.Text == "退出"), "Tray has an explicit exit, separate from closing the window");
+        Show(); State.MinimizeToTray = true; Close();
+        Check(!IsVisible && !closed, "Closing the window hides to tray instead of stopping the application");
+        Show(); State.MinimizeToTray = false;
+        activeTray.ContextMenuStrip!.Dispose(); activeTray.Dispose(); tray = null; trayIcon?.Dispose(); trayIcon = null; trayProcessingItem = null;
+
         File.WriteAllText(Path.Combine(directory, "control-events.json"), JsonSerializer.Serialize(new { Method = "Actual WPF controls and routed handlers in application test mode; not physical mouse/keyboard automation or microphone acceptance.", Passed = checks.Count, Checks = checks }, new JsonSerializerOptions { WriteIndented = true }));
     }
     private static IEnumerable<T> Descendants<T>(DependencyObject parent) where T : DependencyObject

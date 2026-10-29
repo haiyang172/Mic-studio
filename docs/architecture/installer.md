@@ -1,12 +1,12 @@
 # 当前用户安装器
 
-`MicStudio.Setup.exe` 是原生 WPF 安装器，嵌入便携发行 ZIP；不需要开发 SDK、另装运行时或管理员权限。发行包随附未修改的 VB-CABLE 官方驱动包，但应用安装过程不会安装驱动、自动打开麦克风、自动启动主程序或添加开机启动项。主程序打开由安装完成后的独立按钮触发；驱动在主程序设备页面由用户单独打开官方安装器并确认 UAC。
+`MicStudio.Setup.exe` 是原生 WPF 安装器，嵌入便携发行 ZIP；不需要开发 SDK、另装运行时或管理员权限。发行包随附未修改的 VB-CABLE 官方驱动包，但应用安装过程不会安装驱动、自动打开麦克风、自动启动主程序或添加开机启动项。主程序打开由安装完成后的独立按钮触发；驱动在主程序设备页面由用户单独打开官方安装器并确认 UAC。登录启动只由主程序设置页的用户操作创建。
 
 VB-CABLE 由 [VB-Audio](https://vb-cable.com) 提供，是 Donationware，欢迎用户[捐赠/购买许可](https://vb-audio.com/Services/licensing.htm)。安装器和主程序展示该归属及入口；仅捆绑标准 VB-CABLE，未捆绑 A+B、C+D 等其他产品。官方分发条件及包的具体来源、摘要和签名记录见 THIRD_PARTY.md 与组件说明。
 
 固定安装位置为 `%LOCALAPPDATA%\Programs\MicStudio`。开始菜单建立 `Mic Studio Next` 文件夹；桌面入口是可选的 `Mic Studio Next.lnk`。使用独立名称避免覆盖旧原型的入口，发现同名但指向其他程序的快捷方式时保留该入口并报告问题。卸载入口仅登记在 HKCU，适用于当前用户。
 
-个人设置、预设和录音位于安装目录之外，安装/升级/卸载不会删除 `%LOCALAPPDATA%\MicStudio.Next`，也不会触碰旧版 `mic-studio-desktop`、独立 APO 或 VB-CABLE。卸载主程序不会自动撤销已经写入系统的 APO 配置；卸载前应在主程序使用恢复入口。
+个人设置、预设和录音位于安装目录之外，安装/升级/卸载不会删除 `%LOCALAPPDATA%\MicStudio.Next`，也不会触碰旧版 `mic-studio-desktop`、独立 APO 或 VB-CABLE。卸载会移除 Mic Studio 在 HKCU `Run` 中创建的 `MicStudio.Next` 登录启动值，但只在命令指向本安装的 `MicStudio.exe` 且带 `--minimized` 时删除。卸载主程序不会自动撤销已经写入系统的 APO 配置；卸载前应在主程序使用恢复入口。
 
 ## 构建
 

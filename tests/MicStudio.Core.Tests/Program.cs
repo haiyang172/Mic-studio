@@ -312,6 +312,24 @@ Test("Finite extreme samples stay finite with limiter disabled", () =>
     new DspProcessor(48000, 1, s).Process(data, 0, data.Length);
     Require(data.All(float.IsFinite), "Float conversion overflow");
 });
+Test("Startup command quotes the executable and requests tray mode", () =>
+{
+    var command = StartupCommand.Build(@"C:\Users\Some Person\AppData\Local\Programs\MicStudio\MicStudio.exe");
+    Require(command == "\"C:\\Users\\Some Person\\AppData\\Local\\Programs\\MicStudio\\MicStudio.exe\" --minimized", "Unexpected startup command: " + command);
+    Require(StartupCommand.IsMinimizedLaunch(new[] { "--minimized" }), "Minimized launch not recognized");
+    Require(!StartupCommand.IsMinimizedLaunch(Array.Empty<string>()), "Ordinary launch treated as minimized");
+    Require(!StartupCommand.IsMinimizedLaunch(new[] { "--minimized", "extra" }), "Extra arguments treated as minimized");
+    Require(StartupCommand.Matches(command, @"C:\Users\Some Person\AppData\Local\Programs\MicStudio\MicStudio.exe"), "Command did not match executable");
+    Require(!StartupCommand.Matches(command, @"C:\Other\MicStudio.exe"), "Command matched another executable");
+});
+Test("Startup command rejects relative, non-executable and control-character paths", () =>
+{
+    Reject(() => StartupCommand.Build("MicStudio.exe"), "Relative path accepted");
+    Reject(() => StartupCommand.Build(@"C:\Temp\MicStudio.dll"), "Non-executable accepted");
+    Reject(() => StartupCommand.Build(""), "Empty path accepted");
+    Reject(() => StartupCommand.Build("C:\\Temp\\Mic\nStudio.exe"), "Control character accepted");
+    Reject(() => StartupCommand.Build("C:\\Temp\\Mic\"Studio.exe"), "Quote accepted");
+});
 
 Console.WriteLine($"Core synthetic verification: {passed} passed, {failed} failed. No microphone, APO, Discord or subjective audio acceptance performed.");
 return failed == 0 ? 0 : 1;

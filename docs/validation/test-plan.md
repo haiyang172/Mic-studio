@@ -1,6 +1,6 @@
 # Mic Studio verification and acceptance
 
-Date: 2026-10-28 (Australia/Sydney). This file defines the acceptance procedure. An unchecked item is pending, not passed. The app's status indicators and a saved configuration are not substitutes for the manual audio checks below.
+Date: 2026-10-29 (Australia/Sydney). This file defines the acceptance procedure. An unchecked item is pending, not passed. The app's status indicators and a saved configuration are not substitutes for the manual audio checks below.
 
 ## Automated checks
 
@@ -8,6 +8,7 @@ Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test.ps1` from 
 
 - [x] Earlier deterministic verification passed Core, APO and WindowsAudio checks for filter response, dynamics, spectral suppression, state-preserving updates, presets, atomic recovery, guarded APO writes and audio queue/format contracts. No physical microphone was opened by those runs.
 - [x] Final functional run passed Core 28, APO 19, WindowsAudio 25 and Components 24, including the pinned component's actual installer signature without launching it. Native Setup's subsequent manifest-preservation changes passed 40 independent checks. Current results are recorded in `release-0.1.0.md`.
+- [x] 0.3.0 run passed Core 38, APO 20, WindowsAudio 39, Components 24 and Setup 40; WPF checks passed 43 control events with 27 Chinese and 27 English layouts and zero untranslated visible English text. Results are recorded in `p2-background.md`.
 - [x] Release WPF build completed with restored locked dependencies, zero compiler warnings and zero errors on this machine.
 - [x] Self-contained `win-x64` EXE started on this Windows 11 x64 machine and loaded the bundled hostfxr/coreclr/WPF libraries; no developer SDK is used by the published process. A separate fresh-machine run remains pending.
 - [x] Published ZIP/setup checksums match `dist/SHA256SUMS.txt`; package excludes SDK, user audio, settings, logs and credentials. Standard VB-CABLE bytes match the pinned original SHA-256, retain attribution/donation links, and exclude A+B/C+D.
@@ -24,13 +25,24 @@ All automated audio samples are synthesized in memory or in temporary test stora
 
 ## UI and persistence
 
+- [x] Automated WPF checks cover all seven pages at 1280×820, 900×600 and 600×500 DIP, ordinary and expanded advanced controls, no horizontal overflow and reachable scrolling. 43 control/event checks and 27 Chinese plus 27 English layouts pass in 0.3.0.
 - [ ] Run every page and dialog; click, type and use Tab/Shift+Tab, keyboard activation and numeric inputs.
-- [ ] Inspect 1280×820 and 900×600 DIP, smaller working areas, long Chinese/English names and Windows text scaling. Essential actions remain reachable by scrolling.
 - [ ] Check 100%, 125%, 150%, 175% and 200% display scale plus crossing between displays. Record the scales actually tested.
 - [ ] Drag/select EQ points and confirm band rows match; edit numbers and confirm the curve matches. Identify it as theoretical EQ response.
-- [ ] Exercise flat/reset, undo/redo and bypass; distinguish bypass from mute and external APO processing.
+- [ ] Exercise flat/reset, the effects switch and microphone mute; distinguish effects bypass from mute and external APO processing.
 - [ ] Save, duplicate, rename, favorite, delete and import/export personal presets. Factory presets remain immutable. Restart and verify local state recovery.
 - [ ] Reject malformed, oversized, unsupported-version and out-of-range presets without modifying the current draft. Check corrupt local settings warnings and preservation.
+- [ ] Verify a 0.2.x workspace migrates without losing device, presets, EQ or theme, and that the new close-to-tray default is visible.
+
+## Background, tray, startup and language
+
+- [x] Automated checks verify the new workspace default close-to-tray, schema-1 migration, separate startup preferences, tray menu entries, closing hides without disposing, language switch/restore and English text coverage.
+- [ ] With real audio running, click the window close button: the window hides, the tray icon remains and the receiving app keeps audio. Stop/continue from the tray changes the same processing state.
+- [ ] Choose explicit “Exit” from the tray: local audio stops, the tray icon disappears and the process ends. Reopen and confirm no microphone was opened automatically.
+- [ ] Enable sign-in launch, sign out/in Windows, and confirm Mic Studio starts in the tray without a main window. Separately enable automatic processing and confirm it starts only when a usable selected microphone exists.
+- [ ] Disable sign-in launch and verify the `MicStudio.Next` Run value is removed. Install, upgrade over a running/closed build and uninstall; confirm uninstall removes only Mic Studio's startup value and preserves personal settings, presets and recordings.
+- [ ] Switch Chinese/English during real processing: audio must not stop or change, all visible labels follow the choice, and the choice survives restart. Confirm Windows device names and third-party APO/installer text are shown as supplied.
+
 
 ## Direct APO path
 

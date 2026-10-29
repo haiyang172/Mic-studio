@@ -121,31 +121,32 @@ public sealed class AudioSettings
 
     public void Validate(int sampleRate = 48000)
     {
-        if (SchemaVersion != 1) throw new ArgumentException("不支持此设置版本；旧版预设需要显式迁移。");
+        if (SchemaVersion != 1) throw new ArgumentException(UiText.T("不支持此设置版本；旧版预设需要显式迁移。", "This settings version is not supported; older presets need an explicit migration."));
         if (sampleRate is < 8000 or > 384000) throw new ArgumentOutOfRangeException(nameof(sampleRate));
-        Check(InputGainDb, -24, 30, "输入增益"); Check(OutputGainDb, -24, 0, "输出补偿");
-        if (Bands is null || Bands.Count != 8 || Bands.Any(b => b is null)) throw new ArgumentException("均衡器必须包含八个频段。");
+        Check(InputGainDb, -24, 30, "输入增益", "Input gain"); Check(OutputGainDb, -24, 0, "输出补偿", "Output trim");
+        if (Bands is null || Bands.Count != 8 || Bands.Any(b => b is null)) throw new ArgumentException(UiText.T("均衡器必须包含八个频段。", "The equalizer must contain eight bands."));
         EqFilterType[] expected = [EqFilterType.HighPass, EqFilterType.LowShelf, EqFilterType.Peak, EqFilterType.Peak, EqFilterType.Peak, EqFilterType.Peak, EqFilterType.HighShelf, EqFilterType.LowPass];
         for (int i = 0; i < Bands.Count; i++)
         {
             var b = Bands[i];
-            if (b.Type != expected[i]) throw new ArgumentException("频段类型或顺序不受支持。");
-            if (string.IsNullOrWhiteSpace(b.Name) || b.Name.Length > 60 || b.Name.Any(char.IsControl)) throw new ArgumentException("频段名称无效。");
-            Check(b.FrequencyHz, 20, b.Type == EqFilterType.HighPass ? 250 : 20000, "频率");
-            if (b.Enabled && b.FrequencyHz >= sampleRate * 0.49) throw new ArgumentException($"{b.Name}频率超过当前采样率的有效范围。");
-            Check(b.GainDb, -12, 12, "频段增益"); Check(b.Q, 0.2, 10, "Q");
+            if (b.Type != expected[i]) throw new ArgumentException(UiText.T("频段类型或顺序不受支持。", "A band type or its order is not supported."));
+            if (string.IsNullOrWhiteSpace(b.Name) || b.Name.Length > 60 || b.Name.Any(char.IsControl)) throw new ArgumentException(UiText.T("频段名称无效。", "A band name is invalid."));
+            Check(b.FrequencyHz, 20, b.Type == EqFilterType.HighPass ? 250 : 20000, "频率", "Frequency");
+            if (b.Enabled && b.FrequencyHz >= sampleRate * 0.49) throw new ArgumentException(UiText.T($"{b.Name}频率超过当前采样率的有效范围。", "A band frequency is outside the current sample rate's valid range."));
+            Check(b.GainDb, -12, 12, "频段增益", "Band gain"); Check(b.Q, 0.2, 10, "Q", "Q");
         }
-        if (Denoise is null || Compressor is null || Gate is null || Limiter is null || Creative is null) throw new ArgumentException("效果参数不完整。");
-        Check(Denoise.Strength, 0, 1, "降噪强度"); Check(Denoise.NoiseFloorDb, -90, -20, "噪声参考电平");
-        Check(Compressor.ThresholdDb, -60, 0, "压缩门限"); Check(Compressor.Ratio, 1, 20, "压缩比"); Check(Compressor.AttackMs, 0.1, 200, "压缩启动"); Check(Compressor.ReleaseMs, 10, 2000, "压缩释放"); Check(Compressor.MakeupDb, 0, 18, "压缩补偿");
-        Check(Gate.ThresholdDb, -90, -10, "扩展门限"); Check(Gate.Ratio, 1, 10, "扩展比例"); Check(Gate.AttackMs, 0.1, 100, "扩展启动"); Check(Gate.HoldMs, 0, 1000, "扩展保持"); Check(Gate.ReleaseMs, 20, 2000, "扩展释放"); Check(Gate.RangeDb, 0, 60, "扩展范围");
-        Check(Limiter.CeilingDb, -12, -0.1, "限幅上限"); Check(Limiter.ReleaseMs, 10, 1000, "限幅释放");
-        Check(Creative.DriveDb, 0, 24, "饱和驱动"); Check(Creative.RobotFrequencyHz, 20, 300, "环形调制频率"); Check(Creative.DelayMs, 20, 1000, "回声间隔"); Check(Creative.DelayMix, 0, 0.6, "回声混合"); Check(Creative.DelayFeedback, 0, 0.75, "回声反馈"); Check(Creative.ReverbMix, 0, 0.6, "混响混合");
+        if (Denoise is null || Compressor is null || Gate is null || Limiter is null || Creative is null) throw new ArgumentException(UiText.T("效果参数不完整。", "Effect parameters are incomplete."));
+        Check(Denoise.Strength, 0, 1, "降噪强度", "Noise reduction strength"); Check(Denoise.NoiseFloorDb, -90, -20, "噪声参考电平", "Noise reference level");
+        Check(Compressor.ThresholdDb, -60, 0, "压缩门限", "Compressor threshold"); Check(Compressor.Ratio, 1, 20, "压缩比", "Compression ratio"); Check(Compressor.AttackMs, 0.1, 200, "压缩启动", "Compressor attack"); Check(Compressor.ReleaseMs, 10, 2000, "压缩释放", "Compressor release"); Check(Compressor.MakeupDb, 0, 18, "压缩补偿", "Compressor makeup");
+        Check(Gate.ThresholdDb, -90, -10, "扩展门限", "Expander threshold"); Check(Gate.Ratio, 1, 10, "扩展比例", "Expander ratio"); Check(Gate.AttackMs, 0.1, 100, "扩展启动", "Expander attack"); Check(Gate.HoldMs, 0, 1000, "扩展保持", "Expander hold"); Check(Gate.ReleaseMs, 20, 2000, "扩展释放", "Expander release"); Check(Gate.RangeDb, 0, 60, "扩展范围", "Expander range");
+        Check(Limiter.CeilingDb, -12, -0.1, "限幅上限", "Limiter ceiling"); Check(Limiter.ReleaseMs, 10, 1000, "限幅释放", "Limiter release");
+        Check(Creative.DriveDb, 0, 24, "饱和驱动", "Saturation drive"); Check(Creative.RobotFrequencyHz, 20, 300, "环形调制频率", "Ring modulation rate"); Check(Creative.DelayMs, 20, 1000, "回声间隔", "Echo delay"); Check(Creative.DelayMix, 0, 0.6, "回声混合", "Echo mix"); Check(Creative.DelayFeedback, 0, 0.75, "回声反馈", "Echo feedback"); Check(Creative.ReverbMix, 0, 0.6, "混响混合", "Reverb mix");
     }
 
-    private static void Check(double value, double min, double max, string label)
+    private static void Check(double value, double min, double max, string label, string englishLabel)
     {
-        if (!double.IsFinite(value) || value < min || value > max) throw new ArgumentException($"{label}必须在 {min} 到 {max} 之间。");
+        if (!double.IsFinite(value) || value < min || value > max)
+            throw new ArgumentException(UiText.F("{0}必须在 {1} 到 {2} 之间。", "{0} must be between {1} and {2}.", UiText.IsEnglish ? englishLabel : label, min, max));
     }
 }
 

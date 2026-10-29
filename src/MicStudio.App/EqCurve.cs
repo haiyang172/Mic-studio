@@ -34,7 +34,7 @@ public sealed class EqCurve : FrameworkElement
         MouseLeftButtonUp += (_, _) => { dragging = false; ReleaseMouseCapture(); };
         LostMouseCapture += (_, _) => dragging = false;
         KeyDown += (_, e) => { if (AllowEditing && e.Key is (Key.Left or Key.Right)) { SelectedBand = Math.Clamp(SelectedBand + (e.Key == Key.Right ? 1 : -1), 0, 7); BandSelected?.Invoke(SelectedBand); InvalidateVisual(); e.Handled = true; } };
-        System.Windows.Automation.AutomationProperties.SetName(this, "理论均衡器响应曲线；展开高级功能后可编辑");
+        System.Windows.Automation.AutomationProperties.SetName(this, Loc.T("理论均衡器响应曲线；展开高级功能后可编辑", "Theoretical equalizer response curve; expand Advanced to edit"));
     }
     private double MaxFrequency => Math.Min(20000, Rate() * .48);
     private double X(double frequency) => 42 + Math.Log10(Math.Clamp(frequency, 20, MaxFrequency) / 20) / Math.Log10(MaxFrequency / 20) * Math.Max(1, ActualWidth - 60);

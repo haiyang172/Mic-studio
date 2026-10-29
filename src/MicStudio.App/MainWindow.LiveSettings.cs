@@ -40,7 +40,7 @@ public partial class MainWindow
         catch (Exception ex)
         {
             applyState = "调音未更新";
-            UpdateChrome(); Notice("当前声音保持上一次有效设置：" + ex.Message);
+            UpdateChrome(); Notice(Loc.T("当前声音保持上一次有效设置：", "Audio keeps the last valid settings: ") + ex.Message);
         }
     }
 
@@ -57,9 +57,9 @@ public partial class MainWindow
     private string CurrentPresetName()
     {
         var preset = AllPresets().FirstOrDefault(p => p.Id == State.SelectedPresetId);
-        if (preset != null && SettingsJson(preset.Settings) == vm.DraftJson) return preset.Name;
-        if (string.IsNullOrEmpty(State.SelectedPresetId) && (SettingsJson(AudioSettings.CreateDefaultForSampleRate(SampleRate)) == vm.DraftJson || SettingsJson(new AudioSettings()) == vm.DraftJson)) return "无";
-        return "自定义";
+        if (preset != null && SettingsJson(preset.Settings) == vm.DraftJson) return Loc.PresetName(preset);
+        if (string.IsNullOrEmpty(State.SelectedPresetId) && (SettingsJson(AudioSettings.CreateDefaultForSampleRate(SampleRate)) == vm.DraftJson || SettingsJson(new AudioSettings()) == vm.DraftJson)) return Loc.T("无", "None");
+        return Loc.T("自定义", "Custom");
     }
 
     private static bool SameEq(AudioSettings a, AudioSettings b) => a.EqEnabled == b.EqEnabled &&
@@ -81,17 +81,17 @@ public partial class MainWindow
         var panel = new StackPanel { Margin = new(0, 0, 0, 10) };
         panel.Children.Add(T(eqOnly ? "EQ 主题" : "声音主题", 12, Muted));
         var picker = new ComboBox { MinWidth = 150, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left };
-        AutomationProperties.SetName(picker, eqOnly ? "EQ 主题" : "声音主题");
+        AutomationProperties.SetName(picker, Loc.T(eqOnly ? "EQ 主题" : "声音主题", eqOnly ? "EQ theme" : "Sound theme"));
         var defaults = AudioSettings.CreateDefaultForSampleRate(SampleRate);
-        var defaultItem = new ComboBoxItem { Content = "默认" }; picker.Items.Add(defaultItem);
+        var defaultItem = new ComboBoxItem { Content = Loc.T("默认", "Default") }; picker.Items.Add(defaultItem);
         ComboBoxItem? selected = (eqOnly ? SameEq(Draft, defaults) : SettingsJson(Draft) == SettingsJson(defaults)) ? defaultItem : null;
         foreach (var preset in AllPresets())
         {
-            var item = new ComboBoxItem { Content = preset.Name, Tag = preset };
+            var item = new ComboBoxItem { Content = Loc.PresetName(preset), Tag = preset };
             picker.Items.Add(item);
             if (preset.Id == State.SelectedPresetId && (eqOnly ? SameEq(Draft, preset.Settings) : SettingsJson(Draft) == SettingsJson(preset.Settings))) selected = item;
         }
-        var customItem = new ComboBoxItem { Content = "自定义" }; picker.Items.Add(customItem);
+        var customItem = new ComboBoxItem { Content = Loc.T("自定义", "Custom") }; picker.Items.Add(customItem);
         picker.SelectedItem = selected ?? customItem;
         picker.SelectionChanged += (_, _) =>
         {

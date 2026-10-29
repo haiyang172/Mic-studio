@@ -14,7 +14,7 @@ public sealed record PayloadInspection(bool PayloadPresent, int Files, long Unco
 
 public static class InstallerEngine
 {
-    public static string ProductVersion => typeof(InstallerEngine).Assembly.GetName().Version?.ToString(3) ?? "0.1.1";
+    public static string ProductVersion => typeof(InstallerEngine).Assembly.GetName().Version?.ToString(3) ?? "0.3.0";
     private const string Product = "MicStudio.Next";
     private const string Marker = ".micstudio-install.json";
     private const string RegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\MicStudio.Next";
@@ -134,6 +134,17 @@ public static class InstallerEngine
             if (Directory.Exists(StartMenuDirectory) && !Directory.EnumerateFileSystemEntries(StartMenuDirectory).Any()) Directory.Delete(StartMenuDirectory);
         }
         catch (Exception ex) { warnings.Add("部分快捷方式未移除：" + ex.Message); }
+        try
+        {
+            // Only remove the per-user startup entry created by Mic Studio; another
+            // product using a different Run value is left untouched.
+            using var run = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true);
+            if (run?.GetValue("MicStudio.Next") is string command &&
+                command.Contains(AppExecutable, StringComparison.OrdinalIgnoreCase) &&
+                command.Contains("--minimized", StringComparison.OrdinalIgnoreCase))
+                run.DeleteValue("MicStudio.Next", false);
+        }
+        catch (Exception ex) { warnings.Add("启动项未移除：" + ex.Message); }
         try
         {
             using var key = Registry.CurrentUser.OpenSubKey(RegistryPath);

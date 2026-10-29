@@ -26,7 +26,7 @@ public partial class MainWindow
         for (var i = 1; i < Draft.Bands.Count - 1; i++)
         {
             var index = i;
-            var gain = Parameter(Draft.Bands[i].Name, -12, 12, Draft.Bands[i].GainDb, value =>
+            var gain = Parameter(Loc.BandName(i, Draft.Bands[i].Name), -12, 12, Draft.Bands[i].GainDb, value =>
                 vm.Change(s => { s.EqEnabled = true; s.Bands[index].Enabled = true; s.Bands[index].GainDb = value; }, true), "dB", readValue: () => Draft.Bands[index].GainDb);
             gain.Margin = new Thickness(0, 2, 12, 12); gains.Children.Add(gain);
         }
@@ -49,7 +49,7 @@ public partial class MainWindow
         for (var i = 0; i < Draft.Bands.Count; i++)
         {
             var index = i;
-            bands.Children.Add(B($"{i + 1} · {Draft.Bands[i].Name}", () =>
+            bands.Children.Add(B($"{i + 1} · {Loc.BandName(i, Draft.Bands[i].Name)}", () =>
             {
                 selectedBand = index;
                 if (curve != null) { curve.SelectedBand = index; curve.InvalidateVisual(); }
@@ -61,7 +61,7 @@ public partial class MainWindow
         advancedContent.Children.Add(Card("增益与余量", "提升 EQ 后可降低输出补偿，给数字处理保留余量。",
             Parameter("输入增益", -24, 30, Draft.InputGainDb, v => vm.Change(s => s.InputGainDb = v, true), "dB", readValue: () => Draft.InputGainDb),
             Parameter("输出补偿", -24, 0, Draft.OutputGainDb, v => vm.Change(s => s.OutputGainDb = v, true), "dB", readValue: () => Draft.OutputGainDb)));
-        var advanced = new Expander { Header = "高级功能", Foreground = Ink, Content = advancedContent, Margin = new Thickness(0, 8, 0, 14) };
+        var advanced = new Expander { Header = Loc.T("高级功能", "Advanced"), Foreground = Ink, Content = advancedContent, Margin = new Thickness(0, 8, 0, 14) };
         advanced.Expanded += (_, _) => { if (curve != null) { curve.AllowEditing = true; curve.InvalidateVisual(); } };
         advanced.Collapsed += (_, _) => { if (curve != null) { curve.AllowEditing = false; curve.InvalidateVisual(); } };
         Add(advanced);
@@ -82,7 +82,7 @@ public partial class MainWindow
             var content = new StackPanel(); content.Children.Add(frequency);
             if (gain != null) content.Children.Add(gain);
             content.Children.Add(Parameter("Q · 带宽", .2, 10, band.Q, value => ChangeBand(b => b.Q = value), "", .01, readValue: () => Draft.Bands[i].Q));
-            bandEditor.Children.Add(Card($"{i + 1} · {band.Name}", band.Enabled ? "调节即生效，可拖动曲线。" : "此频段来自旧主题，调节即启用。", content));
+            bandEditor.Children.Add(Card($"{i + 1} · {Loc.BandName(i, band.Name)}", band.Enabled ? Loc.T("调节即生效，可拖动曲线。", "Adjusting applies immediately; the curve can be dragged.") : Loc.T("此频段来自旧主题，调节即启用。", "This band came from an older theme; adjusting it enables it."), content));
         }
         finally { building = wasBuilding; }
     }

@@ -19,10 +19,10 @@ public static class SettingsStore
             try { File.Copy(path, preserved, false); } catch (IOException) { } catch (UnauthorizedAccessException) { }
             try
             {
-                if (File.Exists(path + ".bak")) return new(Read<T>(path + ".bak"), "设置文件损坏，已读取上次备份；损坏文件已尽可能保留。请检查当前参数。");
+                if (File.Exists(path + ".bak")) return new(Read<T>(path + ".bak"), UiText.T("设置文件损坏，已读取上次备份；损坏文件已尽可能保留。请检查当前参数。", "The settings file was damaged, so the previous backup was loaded. The damaged file was preserved where possible. Review the current parameters."));
             }
             catch (Exception backupEx) when (backupEx is IOException or UnauthorizedAccessException or JsonException or ArgumentException or NotSupportedException) { }
-            return new(new T(), "设置文件无法读取，已载入默认草稿；损坏文件已尽可能保留。不会自动应用音频配置。");
+            return new(new T(), UiText.T("设置文件无法读取，已载入默认草稿；损坏文件已尽可能保留。不会自动应用音频配置。", "The settings file could not be read, so a default draft was loaded. The damaged file was preserved where possible. No audio configuration is applied automatically."));
         }
     }
 

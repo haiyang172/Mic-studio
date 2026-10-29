@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF>
-    <AssemblyName>MicStudio.Setup</AssemblyName><RootNamespace>MicStudio.Setup</RootNamespace><Version>0.2.1</Version>
+    <AssemblyName>MicStudio.Setup</AssemblyName><RootNamespace>MicStudio.Setup</RootNamespace><Version>0.3.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Description>Mic Studio native per-user installer</Description>
     <PublishSingleFile>true</PublishSingleFile><IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
