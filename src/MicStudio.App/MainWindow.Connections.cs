@@ -27,7 +27,7 @@ public partial class MainWindow
             : status.Message;
         driverStatusText = T(driverUpdate is null ? "" : Loc.F("官网安装包：Pack {0}", "Official package: Pack {0}", driverUpdate.AvailablePackNumber), 13, Accent);
         Add(Card("虚拟输入驱动", driverDescription,
-            T(Loc.F("VB-CABLE：{0}   {1}", "VB-CABLE: {0}   {1}", status.ServicePresent ? Loc.T("已安装", "Installed") : Loc.T("未检测到安装", "Not installed"), status.DriverVersion), 14),
+            T(Loc.F("VB-CABLE：{0}{1}", "VB-CABLE: {0}{1}", status.ServicePresent ? Loc.T("已安装", "Installed") : Loc.T("未检测到安装", "Not installed"), status.ServicePresent && Version.TryParse(status.DriverVersion, out _) ? "   " + status.DriverVersion : ""), 14),
             T(Loc.F("发送端：{0}    接收端：{1}", "Send: {0}    Receive: {1}", send.Count > 0 ? Loc.T("正常", "Ready") : Loc.T("未检测到", "Not found"), receive.Count > 0 ? Loc.T("正常", "Ready") : Loc.T("未检测到", "Not found")), 13, send.Count > 0 && receive.Count > 0 ? Accent : Amber),
             T(package is null ? Loc.T("本地安装包：未找到", "Local package: not found") : Loc.F("本地安装包：Pack {0}", "Local package: Pack {0}", package.PackNumber), 13, Muted),
             driverStatusText,
