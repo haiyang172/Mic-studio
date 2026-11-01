@@ -166,6 +166,8 @@ public sealed class NativeApoDeploymentService
     public NativeApoStatus Inspect(string sourceDll, Guid endpoint)
     {
         var identity = NativeApoFileTrust.Inspect(sourceDll);
+        if (endpoint == Guid.Empty)
+            return new(identity, false, false, false, false, "Select a capture endpoint to inspect its native APO status.");
         try
         {
             using var machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);

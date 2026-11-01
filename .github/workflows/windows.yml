@@ -56,6 +56,8 @@ jobs:
         if: always()
         with:
           name: MicStudio-validation
-          path: artifacts/p2-ui/*.json
+          path: |
+            artifacts/p2-ui/*.json
+            artifacts/p2-ui/error.txt
           if-no-files-found: warn
           retention-days: 14

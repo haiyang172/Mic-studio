@@ -18,6 +18,12 @@ byte[] Snapshot() => NativeApoParameterCodec.Encode(new AudioSettings(), 48000, 
 
 try
 {
+    Test("No capture endpoint returns unavailable without provisioning or throwing", () =>
+    {
+        var status = new NativeApoDeploymentService().Inspect(Path.Combine(temporary, "missing.dll"), Guid.Empty);
+        Assert(!status.EndpointAvailable && !status.Registered && !status.Bound && !status.ParametersReady);
+        Assert(status.AudioPathVerification == "Not verified" && !File.Exists(Path.Combine(temporary, "missing.dll")));
+    });
     Test("Native ABI version size and exact field offsets", () =>
     {
         var settings = new AudioSettings { InputGainDb = 6, OutputGainDb = -3, EqEnabled = false }; settings.Limiter.Enabled = false;

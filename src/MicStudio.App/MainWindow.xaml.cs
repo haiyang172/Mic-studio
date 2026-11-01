@@ -67,6 +67,7 @@ public partial class MainWindow : Window
         Width = Math.Min(1280, SystemParameters.WorkArea.Width - 24);
         Height = Math.Min(820, SystemParameters.WorkArea.Height - 24);
         engine = new(devices);
+        InitializeEchoProtectionNotifications();
         nativeLeaseTimer.Tick += (_, _) => RefreshNativeLease();
         driverManager.DownloadProgressChanged += progress => Dispatcher.BeginInvoke(() => { if (!closed && driverStatusText != null) driverStatusText.Text = progress.Percent is { } percent ? Loc.F("下载中 {0}%", "Downloading {0}%", percent) : Loc.F("已下载 {0} KB", "Downloaded {0} KB", progress.BytesReceived / 1024); });
         applied = Draft.Clone();

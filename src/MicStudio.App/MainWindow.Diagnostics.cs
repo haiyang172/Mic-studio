@@ -36,12 +36,15 @@ public partial class MainWindow
             ProductVersion, DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm zzz"), Environment.OSVersion.VersionString, permission,
             route, inputs.Count(d => d.IsActive), selected, SampleRate,
             apoText, Loc.T("待验证", "Not verified"), outputs.Count(d => d.IsActive && d.IsCableSend), inputs.Count(d => d.IsActive && d.IsCableReceive),
-            capture, recording, engine.OutputBufferResets, meter, algorithmMs, Loc.T("待实际确认", "Pending real verification"));
+            capture, recording, engine.OutputBufferResets, meter, algorithmMs, Loc.T("待实际确认", "Pending real verification")) + EchoDiagnosticDetails();
     }
     private void BuildDiagnostics()
     {
         Header("KNOW YOUR SIGNAL / 06", "状态真实，问题才有线索。", "配置保存成功、组件检测成功与声音实际生效分别记录。导出前可以预览脱敏内容。", false);
-        Add(Card("当前会话", "不会把队列长度或算法帧长标成实测端到端延迟。", T(DiagnosticSummary(), 12, Muted), Buttons(B("刷新摘要", () => { RefreshDevices(); apo = ApoInstallation.Detect(); ShowPage(5); }, true), B("预览并导出诊断", () =>
+        var summaryText = T(DiagnosticSummary(), 12, Muted); diagnosticSummaryText = summaryText;
+        summaryText.Loaded += (_, _) => { diagnosticSummaryText = summaryText; summaryText.Text = DiagnosticSummary(); };
+        summaryText.Unloaded += (_, _) => { if (ReferenceEquals(diagnosticSummaryText, summaryText)) diagnosticSummaryText = null; };
+        Add(Card("当前会话", "不会把队列长度或算法帧长标成实测端到端延迟。", summaryText, Buttons(B("刷新摘要", () => { RefreshDevices(); apo = ApoInstallation.Detect(); ShowPage(5); }, true), B("预览并导出诊断", () =>
         {
             var summary = DiagnosticSummary();
             ShowTextDialog("脱敏诊断预览", summary, "选择位置保存", () =>
