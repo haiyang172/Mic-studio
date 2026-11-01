@@ -69,7 +69,10 @@ try {
     }
     $brandingOutput = Join-Path $published 'assets\branding'
     New-Item -ItemType Directory -Path $brandingOutput -Force | Out-Null
-    foreach ($asset in @('mic-studio.svg', 'mic-studio.png', 'mic-studio.ico')) {
+    foreach ($asset in @('mic-studio.svg', 'mic-studio.png', 'mic-studio.ico',
+        'mic-studio-mark.svg', 'mic-studio-mark.png', 'mic-studio-logo.svg', 'mic-studio-logo.png',
+        'mic-studio-tray-light.svg', 'mic-studio-tray-light.png', 'mic-studio-tray-light.ico',
+        'mic-studio-tray-dark.svg', 'mic-studio-tray-dark.png', 'mic-studio-tray-dark.ico')) {
         Copy-Item -LiteralPath (Join-Path $workspace ('assets\branding\' + $asset)) -Destination $brandingOutput
     }
     $validation = Join-Path $workspace 'docs\validation\test-plan.md'

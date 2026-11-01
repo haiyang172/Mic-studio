@@ -48,7 +48,7 @@ public partial class MainWindow : Window
     private bool forceClose;
     private string? noticeRawText;
     private string applyState = "设置已就绪";
-    private static string ProductVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.5.0";
+    private static string ProductVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.5.1";
 
     private Brush Ink => (Brush)FindResource("Ink");
     private Brush Muted => (Brush)FindResource("Muted");
@@ -132,6 +132,7 @@ public partial class MainWindow : Window
             DisposeApplication();
         };
         ApplyTheme(); ShowPage(0); UpdateCompact();
+        InitializeTrayBranding();
         if (startHidden) { EnsureTray(); Hide(); if (State.LaunchAtLogin && State.AutoStartProcessing) TryAutoStart(); }
         if (vm.RecoveryWarning is not null) Notice(vm.RecoveryWarning);
     }
@@ -206,6 +207,7 @@ public partial class MainWindow : Window
     {
         if (closed) return;
         closed = true; saveTimer.Stop(); liveTimer.Stop(); calibrationTimer.Stop();
+        DisposeTrayBranding();
         StopNativeProcessing();
         lifetime.Cancel();
         try { vm.Save(); } catch { }
@@ -517,11 +519,7 @@ public partial class MainWindow : Window
     private void EnsureTray()
     {
         if (tray != null) return;
-        var resource = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/MicStudio;component/Assets/mic-studio.ico"))
-            ?? throw new InvalidOperationException(Loc.T("缺少 Mic Studio 图标资源。", "The Mic Studio icon resource is missing."));
-        using (var stream = resource.Stream)
-        using (var source = new System.Drawing.Icon(stream, 32, 32))
-            trayIcon = (System.Drawing.Icon)source.Clone();
+        trayIcon = LoadTrayIcon();
         tray = new() { Text = Loc.T("Mic Studio · 后台运行", "Mic Studio · background"), Icon = trayIcon, Visible = true };
         BuildTrayMenu();
         tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowMainWindow);

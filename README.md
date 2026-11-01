@@ -1,10 +1,10 @@
-<img src="assets/branding/mic-studio.png" alt="Mic Studio MS 图标" width="72" height="72">
+<img src="assets/branding/mic-studio.png" alt="Mic Studio A2 翡翠流线图标" width="72" height="72">
 
 # Mic Studio
 
-Windows 原生麦克风调节软件，使用 C# / WPF / .NET 10。面向可选择输入设备的录音、会议、直播、通话软件。界面以设备、系统音量、数字增益和真实电平为主；高级参数按需展开。0.3.0 起关闭窗口默认收进托盘继续运行，并支持参数记忆、登录启动和简体中文 / English 界面；0.4.0 增加语音优先降噪、自动底噪跟踪、实时音高/电话/爆炸麦主题；0.4.1 按用户反馈恢复简洁 MS 字母图标。
+Windows 原生麦克风调节软件，使用 C# / WPF / .NET 10。面向可选择输入设备的录音、会议、直播、通话软件。界面以设备、系统音量、数字增益和真实电平为主；高级参数按需展开。支持参数记忆、关闭到托盘、可选登录启动和简体中文 / English。0.5.0 开发预览增加本地外放回声处理、啸叫静音保护及自研 APO 开发组件；0.5.1 应用已选定的 A2「翡翠流线」图标与明暗单色托盘。自研 APO 的签名部署和真实系统音频验收仍待完成。
 
-[下载发行版](https://github.com/haiyang172/Mic-studio/releases) · [MS 图标源文件](assets/branding/) · [0.4.1 更新说明](docs/release-0.4.1.md)
+[下载发行版](https://github.com/haiyang172/Mic-studio/releases) · [图标与 Logo 源文件](assets/branding/) · [0.5.1 更新说明](docs/release-0.5.1.md)
 
 ## 使用
 
