@@ -53,6 +53,17 @@ if (args.Contains("--resolve-cable"))
     return;
 }
 
+if (args.Contains("--feedback-routing"))
+{
+    Console.WriteLine(JsonSerializer.Serialize(new { Report = PlaybackRoutingInspector.Inspect(), Capturing = false, SettingsWritten = false }));
+    return;
+}
+
+if (args.Contains("--echo-native-tests"))
+{
+    RunNativeEchoTests(); return;
+}
+
 if (!args.Contains("--devices")) RunSyntheticTests();
 if (args.Contains("--tests-only")) return;
 using (var devices = new AudioDeviceService())
@@ -193,6 +204,191 @@ static void RunSyntheticTests()
         Assert(!AudioDeviceService.IsCableInput("CABLE Output (VB-Audio Virtual Cable)"));
         Assert(AudioDeviceService.IsCableOutput("CABLE Output (VB-Audio Virtual Cable)"));
         Assert(AudioDeviceService.IsVirtualCableEndpoint("CABLE In 16ch (VB-Audio Virtual Cable)"));
+        Assert(AudioDeviceService.IsCableInput("CABLE In 16ch (VB-Audio Virtual Cable)"));
+        Assert(AudioDeviceService.IsCableOutput("CABLE Out 16ch (VB-Audio Virtual Cable)"));
+        Assert(AudioDeviceService.IsCableInput("CABLE-C Input (VB-Audio Cable C)"));
+        Assert(AudioDeviceService.IsCableOutput("CABLE-D Output (VB-Audio Cable D)"));
+        Assert(!AudioDeviceService.IsCableInput("Not a CABLE Input device"));
+    });
+    Test("Routing risk distinguishes virtual Discord/default playback from a physical session", () =>
+    {
+        Assert(!new PlaybackRoutingReport(false, false, 0, 1, true).HasDigitalLoopRisk);
+        Assert(new PlaybackRoutingReport(true, false, 0, 0, true).HasDigitalLoopRisk);
+        Assert(new PlaybackRoutingReport(false, true, 0, 0, true).HasDigitalLoopRisk);
+        Assert(new PlaybackRoutingReport(false, false, 1, 0, true).HasDigitalLoopRisk);
+    });
+    Test("Feedback protection latches before a growing loud tone can continue", () =>
+    {
+        foreach (var rate in new[] { 8000, 16000, 48000, 96000 })
+        {
+            var guard = new FeedbackGuard(rate, 1);
+            var result = FeedGuard(guard, rate, 1, 2, n => Math.Min(.8, .03 * Math.Exp(n / (double)rate * 5)) * Math.Sin(2 * Math.PI * 997 * n / rate));
+            Assert(guard.IsMuted && result.Triggers == 1 && result.FirstTriggerFrame < rate * 1.6, $"Rising feedback not latched at {rate} Hz.");
+            var later = Enumerable.Repeat(.5f, 256).ToArray(); guard.Process(later, later.Length);
+            Assert(later.All(v => v == 0), "A latched guard must not automatically release into the same feedback loop.");
+        }
+    });
+    Test("Feedback protection also stops an already established loud howl", () =>
+    {
+        var guard = new FeedbackGuard(48000, 1);
+        var result = FeedGuard(guard, 48000, 1, 2, n => .8 * Math.Sin(2 * Math.PI * 1875 * n / 48000));
+        Assert(guard.IsMuted && result.Triggers == 1 && Math.Abs(guard.FrequencyHz - 1875) < 60);
+    });
+    Test("Feedback protection remains active when the effects processor is bypassed", () =>
+    {
+        var settings = NoEqSettings(); settings.Bypass = true;
+        var guard = new FeedbackGuard(48000, 1);
+        var result = FeedGuard(guard, 48000, 1, 2, n => .8 * Math.Sin(2 * Math.PI * 1500 * n / 48000), processor: new DspProcessor(48000, 1, settings));
+        Assert(guard.IsMuted && result.Triggers == 1);
+    });
+    Test("Feedback protection ignores a short notification and a quiet steady tone", () =>
+    {
+        var shortBeep = new FeedbackGuard(48000, 1);
+        FeedGuard(shortBeep, 48000, 1, 2, n => n < 9600 ? .8 * Math.Sin(2 * Math.PI * 1000 * n / 48000) : 0);
+        var quietTone = new FeedbackGuard(48000, 1);
+        FeedGuard(quietTone, 48000, 1, 3, n => .04 * Math.Sin(2 * Math.PI * 1000 * n / 48000));
+        Assert(!shortBeep.IsMuted && !quietTone.IsMuted);
+    });
+    Test("Feedback protection preserves speech-like harmonics and multitone audio", () =>
+    {
+        var speech = new FeedbackGuard(48000, 1);
+        FeedGuard(speech, 48000, 1, 3, n => .35 * Math.Sin(2 * Math.PI * 180 * n / 48000) + .25 * Math.Sin(2 * Math.PI * 360 * n / 48000) + .2 * Math.Sin(2 * Math.PI * 720 * n / 48000) + .1 * Math.Sin(2 * Math.PI * 1440 * n / 48000));
+        var music = new FeedbackGuard(48000, 1);
+        FeedGuard(music, 48000, 1, 3, n => .4 * Math.Sin(2 * Math.PI * 1000 * n / 48000) + .4 * Math.Sin(2 * Math.PI * 1600 * n / 48000));
+        Assert(!speech.IsMuted && !music.IsMuted);
+    });
+    Test("Feedback protection does not classify loud broadband noise as tonal feedback", () =>
+    {
+        var random = new Random(517);
+        var guard = new FeedbackGuard(48000, 1);
+        FeedGuard(guard, 48000, 1, 3, _ => (random.NextDouble() * 2 - 1) * .9);
+        Assert(!guard.IsMuted);
+    });
+    Test("Feedback protection detects antiphase stereo without muting normal packets", () =>
+    {
+        var guard = new FeedbackGuard(48000, 2);
+        var result = FeedGuard(guard, 48000, 2, 2, n => .8 * Math.Sin(2 * Math.PI * 1500 * n / 48000), antiphase: true);
+        Assert(guard.IsMuted && result.Triggers == 1);
+        var fresh = new FeedbackGuard(48000, 2);
+        var packet = new[] { .1f, -.1f, .2f, -.2f, .3f, -.3f }; var original = packet.ToArray();
+        Assert(!fresh.Process(packet, packet.Length) && packet.SequenceEqual(original), "Non-triggering packets must remain bit-exact.");
+    });
+    Test("Feedback spectral analysis does not allocate per packet", () =>
+    {
+        var guard = new FeedbackGuard(48000, 1); var random = new Random(19);
+        var packet = Enumerable.Range(0, 1024).Select(_ => (float)((random.NextDouble() * 2 - 1) * .8)).ToArray();
+        for (var n = 0; n < 20; n++) guard.Process(packet, packet.Length);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var n = 0; n < 100; n++) guard.Process(packet, packet.Length);
+        Assert(GC.GetAllocatedBytesForCurrentThread() - before < 1024 && !guard.IsMuted);
+    });
+    Test("Playback reference history returns only matching timestamps and expires old audio", () =>
+    {
+        var history = new EchoReferenceBuffer(8000); history.Push(100, Enumerable.Repeat(.25f, 80).ToArray());
+        var read = new short[80]; Assert(history.Read(100, read) && read.All(v => Math.Abs(v - 8192) <= 1));
+        Assert(!history.Read(0, read) && read.All(v => v == 0));
+        history.Push(4100, Enumerable.Repeat(.5f, 80).ToArray());
+        Assert(!history.Read(100, read) && read.All(v => v == 0), "Overwritten history must not replay into another timestamp.");
+    });
+    Test("Playback reference discontinuity clears every older reference frame", () =>
+    {
+        var history = new EchoReferenceBuffer(8000); history.Push(0, Enumerable.Repeat(.25f, 160).ToArray());
+        history.Push(500, Enumerable.Repeat(.5f, 80).ToArray(), true);
+        var read = new short[80]; Assert(!history.Read(0, read) && read.All(v => v == 0));
+        Assert(history.Generation == 1 && history.Read(500, read));
+    });
+    Test("Disconnected playback reference cannot be repopulated by an in-flight old callback", () =>
+    {
+        var history = new EchoReferenceBuffer(8000); history.Push(0, Enumerable.Repeat(.25f, 80).ToArray()); history.Disable();
+        Parallel.For(0, 20, n => history.Push(n * 80, Enumerable.Repeat(.75f, 80).ToArray()));
+        var read = new short[80]; Assert(!history.Read(0, read) && read.All(v => v == 0) && history.Generation == 1);
+    });
+    Test("Reference resampling preserves fractional phase across arbitrary packet boundaries", () =>
+    {
+        var source = Enumerable.Range(0, 44100).Select(n => (float)(.2 * Math.Sin(2 * Math.PI * 997 * n / 44100))).ToArray();
+        var full = new float[48004]; var one = new MonoReferenceResampler(44100, 48000); var count = one.Convert(source, full);
+        var streamed = new List<float>(); var chunks = new MonoReferenceResampler(44100, 48000); var destination = new float[400];
+        for (var at = 0; at < source.Length; at += 293) { var got = chunks.Convert(source.AsSpan(at, Math.Min(293, source.Length - at)), destination); streamed.AddRange(destination.Take(got)); }
+        Assert(Math.Abs(count - 48000) <= 1 && count == streamed.Count);
+        Assert(full.Take(count).Zip(streamed).All(v => Math.Abs(v.First - v.Second) < 1e-6));
+    });
+    Test("Missing playback reference preserves exact stereo input with a fixed one-frame delay", () =>
+    {
+        var history = new EchoReferenceBuffer(8000);
+        using var processor = new EchoFrameProcessor(8000, 2, history, _ => new SubtractEchoAdapter());
+        var input = Enumerable.Range(0, 160 * 2).Select(n => (float)(n * .0001)).ToArray(); var original = input.ToArray();
+        processor.Process(input, input.Length, 0);
+        Assert(processor.LatencySamples == 80 && !processor.ReferenceAvailable);
+        Assert(input.Take(160).All(v => v == 0) && input.Skip(160).SequenceEqual(original.Take(160)));
+    });
+    Test("Echo frame adapter uses the timestamped reference before other DSP", () =>
+    {
+        var history = new EchoReferenceBuffer(8000); history.Push(0, Enumerable.Repeat(.25f, 160).ToArray());
+        using var processor = new EchoFrameProcessor(8000, 1, history, _ => new SubtractEchoAdapter());
+        var input = Enumerable.Repeat(.5f, 160).ToArray(); processor.Process(input, input.Length, 0);
+        Assert(processor.ReferenceAvailable && input.Take(80).All(v => v == 0));
+        Assert(input.Skip(80).All(v => Math.Abs(v - .25f) < .0001));
+    });
+    Test("Native echo errors latch passthrough rather than silence or corrupted output", () =>
+    {
+        var history = new EchoReferenceBuffer(8000); history.Push(0, Enumerable.Repeat(.25f, 160).ToArray());
+        using var processor = new EchoFrameProcessor(8000, 1, history, _ => new SubtractEchoAdapter { Fail = true });
+        var input = Enumerable.Repeat(.37f, 160).ToArray(); processor.Process(input, input.Length, 0);
+        Assert(processor.Failed && input.Skip(80).All(v => v == .37f));
+    });
+    Test("A native failure in one stereo channel falls back coherently in both", () =>
+    {
+        var history = new EchoReferenceBuffer(8000); history.Push(0, Enumerable.Repeat(.25f, 160).ToArray());
+        using var processor = new EchoFrameProcessor(8000, 2, history, c => new SubtractEchoAdapter { Fail = c == 1 });
+        var input = Enumerable.Repeat(.37f, 320).ToArray(); processor.Process(input, input.Length, 0);
+        Assert(processor.Failed && input.Skip(160).All(v => v == .37f));
+    });
+    Test("Automatic echo reference pauses when playback moves to another physical output", () =>
+    {
+        Assert(LoopbackEchoCancellation.AutomaticSelectionMatches("speaker-a", "speaker-a", [], true));
+        Assert(!LoopbackEchoCancellation.AutomaticSelectionMatches("speaker-a", "speaker-b", [], true));
+        Assert(LoopbackEchoCancellation.AutomaticSelectionMatches("speaker-a", "speaker-b", ["speaker-a"], true));
+        Assert(LoopbackEchoCancellation.AutomaticSelectionMatches("speaker-a", null, ["speaker-a"], true));
+        Assert(!LoopbackEchoCancellation.AutomaticSelectionMatches("speaker-a", "speaker-a", ["speaker-a", "speaker-b"], true));
+        Assert(!LoopbackEchoCancellation.AutomaticSelectionMatches("speaker-a", "speaker-a", [], false));
+    });
+    Test("Microphone clock discontinuity discards pending old frame audio", () =>
+    {
+        var history = new EchoReferenceBuffer(8000);
+        using var processor = new EchoFrameProcessor(8000, 1, history, _ => new SubtractEchoAdapter());
+        var earlier = Enumerable.Repeat(.5f, 80).ToArray(); processor.Process(earlier, earlier.Length, 0);
+        var later = Enumerable.Repeat(.1f, 160).ToArray(); processor.Process(later, later.Length, 1000);
+        Assert(later.Take(80).All(v => v == 0) && later.Skip(80).All(v => v == .1f));
+    });
+    Test("Unsupported echo formats fail before any endpoint activation", () =>
+    {
+        Assert(LoopbackEchoCancellation.TryCreate(22050, 1, null, 71, out var state) == null);
+        Assert(state.Enabled && !state.IsActive && state.Code == "format_unsupported" && state.SessionId == 71);
+        Assert(!new CaptureOptions { InputDeviceId = "unused" }.EchoCancellationEnabled);
+    });
+    Test("Echo frame construction disposes prior channels when a component is unavailable", () =>
+    {
+        var adapter = new SubtractEchoAdapter();
+        Throws<DllNotFoundException>(() => new EchoFrameProcessor(8000, 2, new EchoReferenceBuffer(8000), c => c == 0 ? adapter : throw new DllNotFoundException()));
+        Assert(adapter.Disposed);
+    });
+    Test("Feedback trigger can immediately remove queued loud render audio", () =>
+    {
+        var resets = 0; var queue = new BoundedRenderBuffer(8000, 1, () => resets++);
+        var loud = new float[800]; Array.Fill(loud, .8f); var bytes = new byte[loud.Length * 4]; Buffer.BlockCopy(loud, 0, bytes, 0, bytes.Length);
+        queue.Add(bytes, bytes.Length); queue.Clear(); var read = new byte[bytes.Length];
+        queue.Provider.Read(read, 0, read.Length);
+        Assert(read.All(v => v == 0) && resets == 1);
+    });
+    Test("Echo frame processing reuses buffers without per-packet allocation", () =>
+    {
+        var history = new EchoReferenceBuffer(8000);
+        using var processor = new EchoFrameProcessor(8000, 1, history, _ => new SubtractEchoAdapter());
+        var data = new float[80];
+        for (var n = 0; n < 20; n++) processor.Process(data, data.Length, n * 80);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var n = 20; n < 120; n++) processor.Process(data, data.Length, n * 80);
+        Assert(GC.GetAllocatedBytesForCurrentThread() - before < 1024);
     });
     Test("Cable auto route selects a standard matching pair without audio activation", () =>
     {
@@ -350,6 +546,23 @@ static void RunSyntheticTests()
 static AudioDeviceInfo CableEndpoint(string id, string name, bool send, string state = "Active") =>
     new(id, name, state, false, false, send, !send, 48000, 2);
 
+static (int Triggers, int FirstTriggerFrame) FeedGuard(FeedbackGuard guard, int rate, int channels, double seconds,
+    Func<int, double> signal, bool antiphase = false, DspProcessor? processor = null)
+{
+    var packetFrames = Math.Max(64, rate / 100); var packet = new float[packetFrames * channels];
+    var total = (int)(rate * seconds); var triggers = 0; var first = int.MaxValue;
+    for (var start = 0; start < total; start += packetFrames)
+    {
+        var frames = Math.Min(packetFrames, total - start);
+        for (var f = 0; f < frames; f++)
+            for (var c = 0; c < channels; c++) packet[f * channels + c] = (float)(signal(start + f) * (antiphase && c % 2 == 1 ? -1 : 1));
+        processor?.Process(packet, 0, frames * channels);
+        if (guard.Process(packet, frames * channels)) { triggers++; first = Math.Min(first, start); }
+        if (guard.IsMuted) Assert(packet.Take(frames * channels).All(v => v == 0));
+    }
+    return (triggers, first);
+}
+
 static void WithSyntheticDirectory(Action<string> body)
 {
     var root = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
@@ -489,6 +702,27 @@ static void LiveUpdateSmoke()
     }
 }
 
+static void RunNativeEchoTests()
+{
+    const int rate = 16000, frame = 160;
+    var reference = new EchoReferenceBuffer(rate);
+    using var processor = new EchoFrameProcessor(rate, 1, reference);
+    var random = new Random(610);
+    var farEnd = Enumerable.Range(0, rate * 8).Select(_ => (float)((random.NextDouble() * 2 - 1) * .2)).ToArray();
+    var packet = new float[frame]; double dryPower = 0, wetPower = 0; var count = 0;
+    for (var at = 0; at < farEnd.Length; at += frame)
+    {
+        reference.Push(at, farEnd.AsSpan(at, frame));
+        for (var i = 0; i < frame; i++) packet[i] = at + i >= 640 ? farEnd[at + i - 640] * .6f : 0;
+        if (at >= rate * 6) { foreach (var sample in packet) dryPower += sample * sample; }
+        processor.Process(packet, frame, at);
+        if (at >= rate * 6) { foreach (var sample in packet) { wetPower += sample * sample; count++; } }
+    }
+    var reduction = 10 * Math.Log10(dryPower / Math.Max(1e-20, wetPower));
+    Assert(!processor.Failed && processor.ReferenceAvailable && count > rate && reduction > 6, $"Native AEC did not reduce deterministic echo: {reduction:0.0} dB.");
+    Console.WriteLine($"PASS native C# frame adaptation + SpeexDSP: {reduction:0.0} dB synthetic echo reduction, {processor.LatencySamples} sample adapter latency. No audio devices opened.");
+}
+
 static void CableSmoke()
 {
     using var devices = new AudioDeviceService();
@@ -605,4 +839,18 @@ sealed class ContinuousTone(int sampleRate, int channels) : ISampleProvider
                 buffer[offset + f * channels + c] = (float)(0.01584893 * Math.Sin(2 * Math.PI * 997 * _frame / sampleRate));
         return frames * channels;
     }
+}
+
+sealed class SubtractEchoAdapter : IEchoFrameAdapter
+{
+    public bool Fail { get; init; }
+    public bool Disposed { get; private set; }
+    public bool Process(short[] microphone, short[] reference, short[] output)
+    {
+        if (Fail) return false;
+        for (var i = 0; i < output.Length; i++) output[i] = (short)Math.Clamp(microphone[i] - reference[i], short.MinValue, short.MaxValue);
+        return true;
+    }
+    public void Reset() { }
+    public void Dispose() => Disposed = true;
 }

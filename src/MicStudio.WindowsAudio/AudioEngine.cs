@@ -22,6 +22,9 @@ public sealed class AudioEngine : IDisposable
     private MMDevice? _inputDevice;
     private CaptureOptions? _options;
     private DspProcessor? _dsp;
+    private FeedbackGuard? _feedbackGuard;
+    private LoopbackEchoCancellation? _echoCancellation;
+    private EchoCancellationState _echoStatus = new(false, false, false, 0, 0, "off", "回声消除未运行");
     private RenderTarget? _cable;
     private RenderTarget? _monitor;
     private WaveFormat? _format;
@@ -48,6 +51,8 @@ public sealed class AudioEngine : IDisposable
     public event EventHandler<AudioMeter>? MeterUpdated;
     public event EventHandler<AudioEngineStatus>? StatusChanged;
     public event EventHandler<RecordingResult>? RecordingStopped;
+    public event EventHandler<FeedbackProtectionEvent>? FeedbackProtectionTriggered;
+    public event EventHandler<EchoCancellationState>? EchoCancellationStatusChanged;
     public bool IsRunning { get { lock (_data) return _running; } }
     public int SessionId => Volatile.Read(ref _session);
     public bool IsRecording { get { lock (_data) return _writer != null; } }
@@ -57,6 +62,8 @@ public sealed class AudioEngine : IDisposable
     public int SampleRate { get { lock (_data) return _format?.SampleRate ?? 0; } }
     public int Channels { get { lock (_data) return _format?.Channels ?? 0; } }
     public long OutputBufferResets => Interlocked.Read(ref _outputBufferResets);
+    public bool FeedbackProtectionMuted { get { lock (_data) return _feedbackGuard?.IsMuted == true; } }
+    public EchoCancellationState EchoCancellationStatus { get { lock (_data) return _echoStatus; } }
     private long _outputBufferResets;
 
     public AudioEngine(AudioDeviceService? devices = null)
@@ -87,8 +94,12 @@ public sealed class AudioEngine : IDisposable
                 _format = _capture.WaveFormat;
                 ValidateFormat(_format);
                 _dsp = options.ProcessLocally ? new DspProcessor(_format.SampleRate, _format.Channels, options.Settings) : null;
+                _feedbackGuard = options.FeedbackProtectionEnabled ? new FeedbackGuard(_format.SampleRate, _format.Channels) : null;
                 _options = options;
                 var session = ++_session;
+                _echoStatus = new(options.EchoCancellationEnabled, false, false, 0, 0, "off", "回声消除未运行", SessionId: session);
+                if (options.EchoCancellationEnabled)
+                    _echoCancellation = LoopbackEchoCancellation.TryCreate(_format.SampleRate, _format.Channels, options.EchoReferenceOutputDeviceId, session, out _echoStatus);
                 if (options.CableOutputDeviceId != null)
                 {
                     var outputDevice = GetActiveDevice(enumerator, options.CableOutputDeviceId, DataFlow.Render);
@@ -118,6 +129,7 @@ public sealed class AudioEngine : IDisposable
                 _capture.StartRecording();
                 _cable?.Play();
                 _monitor?.Play();
+                EchoCancellationStatusChanged?.Invoke(this, _echoStatus);
                 RaiseStatus(new(true, options.CableOutputDeviceId != null
                     ? "线路已启动 · 目标应用输入选择 CABLE Output · 仍需接收验证"
                     : "采集已启动 · 仅本地测试，未证明 APO 或其他应用已生效"));
@@ -177,6 +189,9 @@ public sealed class AudioEngine : IDisposable
     {
         AudioMeter? meter = null;
         RecordingResult? completed = null;
+        FeedbackProtectionEvent? feedback = null;
+        EchoCancellationState? echoChanged = null;
+        var packetEndTimestamp = Stopwatch.GetTimestamp();
         int session;
         try
         {
@@ -190,7 +205,19 @@ public sealed class AudioEngine : IDisposable
                 Decode(e.Buffer.AsSpan(0, count * bytesPerSample), _samples.AsSpan(0, count), _format);
                 var input = Levels(_samples, count);
                 if (_writer != null && _recordSource) completed = WriteRecordingLocked(count);
+                if (_echoCancellation != null)
+                {
+                    _echoCancellation.Process(_samples, count, packetEndTimestamp);
+                    if (_echoCancellation.HasStateChanged(_echoStatus))
+                        echoChanged = _echoStatus = _echoCancellation.State(_session);
+                }
                 _dsp?.Process(_samples, 0, count);
+                // Independent of effect bypass, before cable/monitor/wet-recording fanout.
+                if (_feedbackGuard?.Process(_samples, count) == true)
+                {
+                    feedback = new(_session, _feedbackGuard.FrequencyHz, _feedbackGuard.TriggerPeakDb);
+                    _cable?.ClearPending(); _monitor?.ClearPending();
+                }
                 var output = Levels(_samples, count);
                 _meterInputPeakDb = Math.Max(_meterInputPeakDb, input.Peak);
                 _meterOutputPeakDb = Math.Max(_meterOutputPeakDb, output.Peak);
@@ -220,6 +247,8 @@ public sealed class AudioEngine : IDisposable
                 }
             }
             if (completed != null) RecordingStopped?.Invoke(this, completed);
+            if (feedback != null) FeedbackProtectionTriggered?.Invoke(this, feedback);
+            if (echoChanged != null) EchoCancellationStatusChanged?.Invoke(this, echoChanged);
             if (meter != null) MeterUpdated?.Invoke(this, meter);
         }
         catch (Exception ex)
@@ -288,13 +317,23 @@ public sealed class AudioEngine : IDisposable
     private void OnDevicesChanged(object? sender, EventArgs e) => Task.Run(() =>
     {
         CaptureOptions? options;
+        LoopbackEchoCancellation? echoReference;
         int session;
-        lock (_data) { if (!_running) return; options = _options; session = _session; }
+        lock (_data) { if (!_running) return; options = _options; session = _session; echoReference = _echoCancellation; }
         if (options == null) return;
         try
         {
             var inputs = _devices.EnumerateInputs(false);
             var outputs = _devices.EnumerateOutputs(false);
+            var echoReferenceChanged = echoReference != null && !echoReference.IsReferenceSelectionCurrent(outputs);
+            EchoCancellationState? echoChanged = null;
+            lock (_data)
+                if (_running && _session == session && _echoCancellation != null && ReferenceEquals(_echoCancellation, echoReference) && echoReferenceChanged)
+                {
+                    _echoCancellation.MarkReferenceUnavailable("reference_changed");
+                    echoChanged = _echoStatus = _echoCancellation.State(_session);
+                }
+            if (echoChanged != null) EchoCancellationStatusChanged?.Invoke(this, echoChanged);
             if (!inputs.Any(x => x.Id == options.InputDeviceId)
                 || (options.CableOutputDeviceId != null && !outputs.Any(x => x.Id == options.CableOutputDeviceId))
                 || (options.MonitorOutputDeviceId != null && !outputs.Any(x => x.Id == options.MonitorOutputDeviceId)))
@@ -365,6 +404,7 @@ public sealed class AudioEngine : IDisposable
     {
         WasapiCapture? capture;
         RenderTarget? cable, monitor;
+        LoopbackEchoCancellation? echoCancellation;
         MMDevice? input;
         RecordingResult? completed;
         lock (_data)
@@ -374,6 +414,8 @@ public sealed class AudioEngine : IDisposable
             capture = _capture; _capture = null;
             cable = _cable; _cable = null;
             monitor = _monitor; _monitor = null;
+            echoCancellation = _echoCancellation; _echoCancellation = null;
+            _echoStatus = new(false, false, false, 0, 0, "off", "回声消除未运行", SessionId: _session);
             input = _inputDevice; _inputDevice = null;
             try { completed = FinishRecordingLocked("音频会话停止"); }
             catch (IOException ex)
@@ -383,6 +425,7 @@ public sealed class AudioEngine : IDisposable
                 Task.Run(() => RaiseStatus(new(false, $"录音文件无法完整写入：{ex.Message}", $"0x{ex.HResult:X8}", failedSession)));
             }
             _dsp = null;
+            _feedbackGuard = null;
             _options = null;
             _elapsed.Stop();
         }
@@ -396,6 +439,7 @@ public sealed class AudioEngine : IDisposable
         }
         try { cable?.Dispose(); } catch (Exception ex) { ReportCleanupError(ex); }
         try { monitor?.Dispose(); } catch (Exception ex) { ReportCleanupError(ex); }
+        try { echoCancellation?.Dispose(); } catch (Exception ex) { ReportCleanupError(ex); }
         try { input?.Dispose(); } catch (Exception ex) { ReportCleanupError(ex); }
         if (completed != null) RecordingStopped?.Invoke(this, completed);
     }
@@ -496,6 +540,7 @@ public sealed class AudioEngine : IDisposable
         }
         public void Play() => _player.Play();
         public void Add(byte[] bytes, int count) => _buffer.Add(bytes, count);
+        public void ClearPending() => _buffer.Clear();
         public void Dispose()
         {
             if (_disposed) return;

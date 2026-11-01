@@ -4,6 +4,7 @@ Mic Studio's own user interface, preset model, biquad filters, frequency-domain 
 
 | Component | Version / source | Use and license |
 | --- | --- | --- |
+| SpeexDSP | 1.2.1, [Xiph.Org source](https://github.com/xiph/speexdsp/tree/SpeexDSP-1.2.1) | Playback-reference acoustic echo cancellation in the separate desktop helper `MicStudioEcho.dll`. BSD-style license retained in `licenses/SpeexDSP-COPYING.txt`; original source archive pinned by SHA-256 in CMake. It is not a system APO or a virtual audio driver. |
 | NAudio.Wasapi | 2.3.0, [NAudio source](https://github.com/naudio/NAudio) | Windows Core Audio endpoint enumeration and WASAPI shared capture/render. MIT; copyright Mark Heath and contributors. |
 | NAudio.Core | 2.3.0, transitive dependency | Audio buffer, WAV and sample-provider utilities. MIT; copyright Mark Heath and contributors. |
 | Microsoft .NET / Windows Desktop runtime | Runtime version selected by the pinned .NET 10 SDK during self-contained publication | Included in the portable Windows x64 package. Microsoft runtime redistribution and third-party notices apply; see package license texts copied into `licenses/` and the [runtime repository](https://github.com/dotnet/runtime), [WPF repository](https://github.com/dotnet/wpf). |

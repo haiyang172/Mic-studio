@@ -27,6 +27,12 @@
       "micstudio.core": {
         "type": "Project"
       },
+      "micstudio.nativeapo": {
+        "type": "Project",
+        "dependencies": {
+          "MicStudio.Core": "[1.0.0, )"
+        }
+      },
       "micstudio.windowsaudio": {
         "type": "Project",
         "dependencies": {

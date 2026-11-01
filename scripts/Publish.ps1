@@ -27,10 +27,29 @@ foreach ($candidate in @($dist, $published)) {
 Push-Location $workspace
 try {
     if (!$SkipTests) { & (Join-Path $PSScriptRoot 'Test.ps1') -Configuration $Configuration }
+    $native = Join-Path $workspace 'artifacts\native\bin'
+    foreach ($name in @('MicStudioApo.dll', 'MicStudioEcho.dll', 'SpeexDSP-COPYING.txt')) {
+        if (!(Test-Path -LiteralPath (Join-Path $native $name))) { throw "Native release component missing: $name. Build with scripts/Build-NativeCpp.ps1 or obtain the verified CI native artifact." }
+    }
+    $appProject = [xml](Get-Content -LiteralPath (Join-Path $workspace 'src\MicStudio.App\MicStudio.App.csproj') -Raw)
+    $appVersion = $appProject.SelectSingleNode('/Project/PropertyGroup/Version').InnerText
+    if ($appVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$') { throw 'The application release version is missing or invalid.' }
+    $releaseNotes = Join-Path $workspace ("docs\release-$appVersion.md")
+    if (!(Test-Path -LiteralPath $releaseNotes -PathType Leaf)) { throw "Release notes must match the application version: $appVersion" }
     if (Test-Path -LiteralPath $published) { Remove-Item -LiteralPath $published -Recurse -Force }
     New-Item -ItemType Directory -Path $published -Force | Out-Null
     & $dotnet publish 'src\MicStudio.App\MicStudio.App.csproj' -c $Configuration -r win-x64 --self-contained true -o $published -p:RestoreLockedMode=true -p:PublishSingleFile=false -p:DebugType=None -p:DebugSymbols=false
     if ($LASTEXITCODE -ne 0) { throw 'Self-contained publication failed.' }
+    & $dotnet publish 'src\MicStudio.ApoControl\MicStudio.ApoControl.csproj' -c $Configuration -r win-x64 --self-contained true -o $published -p:RestoreLockedMode=true -p:PublishSingleFile=false -p:DebugType=None -p:DebugSymbols=false
+    if ($LASTEXITCODE -ne 0) { throw 'Native APO administration helper publication failed.' }
+    Copy-Item -LiteralPath (Join-Path $native 'MicStudioEcho.dll') -Destination $published
+    $ownApo = Join-Path $published 'components\MicStudioAPO'
+    New-Item -ItemType Directory -Path $ownApo -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $native 'MicStudioApo.dll') -Destination $ownApo
+    'Development APO component. System registration requires a trusted signed build and explicit administrator approval; Windows loading and audio response remain unverified. This package does not change protected-audio policy.' | Set-Content -LiteralPath (Join-Path $ownApo 'DEVELOPMENT-NOTICE.txt') -Encoding utf8
+    $nativeLicenses = Join-Path $published 'licenses'
+    New-Item -ItemType Directory -Path $nativeLicenses -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $native 'SpeexDSP-COPYING.txt') -Destination $nativeLicenses
     & (Join-Path $PSScriptRoot 'Fetch-Components.ps1')
     $component = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'components.lock.json') -Raw | ConvertFrom-Json).vbCable
     $componentOutput = Join-Path $published 'components'
@@ -59,9 +78,7 @@ try {
     if (Test-Path -LiteralPath $installerDoc) { Copy-Item -LiteralPath $installerDoc -Destination (Join-Path $published 'INSTALLER.md') }
     $componentDoc = Join-Path $workspace 'docs\architecture\components-vbcable.md'
     if (Test-Path -LiteralPath $componentDoc) { Copy-Item -LiteralPath $componentDoc -Destination (Join-Path $published 'COMPONENTS.md') }
-    $releaseNotes = Get-ChildItem -LiteralPath (Join-Path $workspace 'docs') -Filter 'release-*.md' -File |
-        Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if ($null -ne $releaseNotes) { Copy-Item -LiteralPath $releaseNotes.FullName -Destination (Join-Path $published 'RELEASE-NOTES.md') }
+    Copy-Item -LiteralPath $releaseNotes -Destination (Join-Path $published 'RELEASE-NOTES.md')
     # Preserve license/notice texts supplied by the actual Microsoft and NAudio packages.
     $nugetRoot = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.nuget\packages' }
     $noticeRoot = Join-Path $published 'licenses'

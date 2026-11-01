@@ -24,7 +24,7 @@ public partial class MainWindow
         }
         else volume.Children.Add(T("麦克风未连接", 14, Amber));
         volume.Children.Add(Parameter("输入增益", -24, 30, Draft.InputGainDb, v => vm.Change(s => s.InputGainDb = v, true), "dB"));
-        playerButton = B("开始处理", () => { if (engine.IsRunning) StopAudio(); else StartAudio(LocalMode); }, true);
+        playerButton = B("开始处理", () => { if (ProcessingActive) StopAudio(); else StartAudio(LocalMode); }, true);
         volume.Children.Add(Buttons(playerButton));
         AdaptiveCards(Card("输入", "系统音量和静音会立即作用于所选麦克风，包括其他应用。", volume), Card("电平", "开始后显示真实峰值；采集输入可能包含 Windows 系统效果。", MeterBlock(false), LocalMode ? MeterBlock(true) : T("APO 音频生效待验证", 12, Amber)));
         var quick = new WrapPanel();
@@ -34,7 +34,7 @@ public partial class MainWindow
             ? route.IsReady
                 ? Loc.T("其他软件的输入选：", "In the other app, select input: ") + route.Receive!.Name
                 : Loc.T("虚拟线路未就绪，可在设备页检查驱动", "Virtual cable is not ready; check the driver on Devices")
-            : Loc.T("系统 APO 需在设备页更新配置", "Update the system APO configuration on Devices");
+            : NativeMode ? Loc.T("自研 APO 预览：仅增益、EQ、限幅；系统音频待验证", "Native APO preview: gain, EQ and limiter only; system audio unverified") : Loc.T("系统 APO 需在设备页更新配置", "Update the system APO configuration on Devices");
         var tone = Card("音色", null, BuildPresetSelector(false), quick, T(routeText, 13, route.IsReady || !LocalMode ? Accent : Amber));
         Add(tone);
         Add(new Expander { Header = Loc.T("增益校准", "Gain calibration"), Foreground = Ink, Content = CalibrationControls(), Margin = new(0, 4, 0, 6) });
@@ -75,7 +75,8 @@ public partial class MainWindow
             meter.Bar.Value = Math.Clamp(peak, -60, 0);
         }
         if (calibrating && m.InputPeakDb > -65 && double.IsFinite(m.InputPeakDb)) calibrationPeaks.Add(LocalMode ? m.InputPeakDb : m.OutputPeakDb);
-        CaptureFooter.Text = (LocalMode ? Loc.T("●  处理中", "●  Processing") : Loc.T("●  测量中", "●  Measuring")) + (m.ClippedSamples > 0 ? Loc.T(" · 检测到削波", " · Clipping detected") : "");
+        CaptureFooter.Text = engine.FeedbackProtectionMuted ? Loc.T("啸叫保护：已静音", "Feedback protection: muted") : (LocalMode ? Loc.T("●  处理中", "●  Processing") : Loc.T("●  测量中", "●  Measuring")) + (m.ClippedSamples > 0 ? Loc.T(" · 检测到削波", " · Clipping detected") : "");
+        CaptureFooter.Foreground = engine.FeedbackProtectionMuted ? Amber : Accent;
     }
     private UIElement SessionControls()
     {

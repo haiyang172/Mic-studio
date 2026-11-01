@@ -10,6 +10,13 @@ public partial class MainWindow
 
     private void OnSoundChanged()
     {
+        if (NativeMode && nativeWriter != null)
+        {
+            pendingNativeSettings = true;
+            if (!liveTimer.IsEnabled) liveTimer.Start();
+            applyState = Loc.T("系统参数已发送 · 音频待验证", "System parameters sent · audio unverified");
+            UpdateChrome(); curve?.InvalidateVisual(); SaveSoon(); return;
+        }
         if (LocalMode && engine.IsRunning)
         {
             pendingSettingsSession = engine.SessionId;
@@ -17,13 +24,20 @@ public partial class MainWindow
             // there are no worker tasks that can deliver an older slider value later.
             if (!liveTimer.IsEnabled) liveTimer.Start();
         }
-        applyState = LocalMode ? engine.IsRunning ? "实时调音" : "设置已就绪" : "APO 需在设备页更新";
+        applyState = NativeMode ? Loc.T("自研 APO 参数尚未发送", "Native APO parameters have not been sent") : LocalMode ? engine.IsRunning ? "实时调音" : "设置已就绪" : "APO 需在设备页更新";
         UpdateChrome(); curve?.InvalidateVisual(); SaveSoon();
     }
 
     private void FlushLiveSettings()
     {
         liveTimer.Stop();
+        if (pendingNativeSettings && NativeMode && nativeWriter != null)
+        {
+            pendingNativeSettings = false;
+            try { WriteNativeSettings(); }
+            catch (Exception error) { StopNativeProcessing(); Notice(error.Message); }
+            UpdateChrome(); return;
+        }
         var expectedSession = pendingSettingsSession;
         pendingSettingsSession = -1;
         if (closed || !LocalMode || !engine.IsRunning || expectedSession != engine.SessionId) return;
