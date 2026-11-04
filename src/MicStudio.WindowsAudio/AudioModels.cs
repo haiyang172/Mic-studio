@@ -13,6 +13,8 @@ public sealed class CaptureOptions
     public bool FeedbackProtectionEnabled { get; init; } = true;
     public bool EchoCancellationEnabled { get; init; }
     public string? EchoReferenceOutputDeviceId { get; init; }
+    // The send is configured before capture begins, including a PTT-closed start.
+    public bool TransmitEnabled { get; init; } = true;
 }
 
 public sealed record AudioMeter(double InputPeakDb, double InputRmsDb, double OutputPeakDb, double OutputRmsDb,

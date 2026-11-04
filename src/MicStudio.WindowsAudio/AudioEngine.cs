@@ -9,7 +9,8 @@ namespace MicStudio.WindowsAudio;
 
 /// <summary>
 /// Explicitly started WASAPI shared capture. DSP runs once in the capture callback;
-/// cable, monitor and file receive that same result. Input meters describe this endpoint's
+/// cable, monitor and file receive that result; only cable is gated by local send controls.
+/// Input meters describe this endpoint's
 /// shared stream, which may already include system effects, never a guaranteed raw stream.
 /// </summary>
 public sealed class AudioEngine : IDisposable
@@ -30,6 +31,8 @@ public sealed class AudioEngine : IDisposable
     private WaveFormat? _format;
     private float[] _samples = [];
     private byte[] _floatBytes = [];
+    private byte[] _transmitBytes = [];
+    private CableTransmitGate? _transmitGate;
     private bool _running;
     private bool _disposed;
     private int _session;
@@ -63,6 +66,7 @@ public sealed class AudioEngine : IDisposable
     public int Channels { get { lock (_data) return _format?.Channels ?? 0; } }
     public long OutputBufferResets => Interlocked.Read(ref _outputBufferResets);
     public bool FeedbackProtectionMuted { get { lock (_data) return _feedbackGuard?.IsMuted == true; } }
+    public bool TransmitEnabled { get { lock (_data) return _running && _transmitGate?.ObserveEnabled(Environment.TickCount64) == true; } }
     public EchoCancellationState EchoCancellationStatus { get { lock (_data) return _echoStatus; } }
     private long _outputBufferResets;
 
@@ -95,6 +99,7 @@ public sealed class AudioEngine : IDisposable
                 ValidateFormat(_format);
                 _dsp = options.ProcessLocally ? new DspProcessor(_format.SampleRate, _format.Channels, options.Settings) : null;
                 _feedbackGuard = options.FeedbackProtectionEnabled ? new FeedbackGuard(_format.SampleRate, _format.Channels) : null;
+                _transmitGate = new(_format.SampleRate, _format.Channels, options.TransmitEnabled, () => _cable?.ClearPending());
                 _options = options;
                 var session = ++_session;
                 _echoStatus = new(options.EchoCancellationEnabled, false, false, 0, 0, "off", "回声消除未运行", SessionId: session);
@@ -185,6 +190,24 @@ public sealed class AudioEngine : IDisposable
             return _running && _session == expectedSessionId && ReferenceEquals(_dsp, processor);
     }
 
+    /// <summary>
+    /// Changes only this running session's CABLE send. A stale or stopped request
+    /// cannot activate capture. Monitoring, meters and recording retain the DSP result.
+    /// A positive lease expires independently in the capture callback if its UI
+    /// renewal stalls. Zero is a continuous send. Already submitted device frames
+    /// may finish, but queued CABLE packets are removed when closing or expiring.
+    /// </summary>
+    public bool SetTransmitEnabled(bool enabled, int expectedSession, int leaseMilliseconds = 0)
+    {
+        CableTransmitGate.ValidateLease(leaseMilliseconds);
+        lock (_data)
+        {
+            if (!_running || _session != expectedSession || _transmitGate == null) return false;
+            _transmitGate.SetEnabled(enabled, leaseMilliseconds, Environment.TickCount64);
+            return true;
+        }
+    }
+
     private void OnDataAvailable(object? sender, WaveInEventArgs e)
     {
         AudioMeter? meter = null;
@@ -197,8 +220,12 @@ public sealed class AudioEngine : IDisposable
         {
             lock (_data)
             {
-                if (!_running || sender != _capture || _format == null || e.BytesRecorded == 0) return;
+                if (!_running || sender != _capture || _format == null) return;
                 session = _session;
+                // Lease expiry is observed even for empty capture notifications,
+                // before potentially expensive DSP and again before sending.
+                _transmitGate?.ObserveEnabled(Environment.TickCount64);
+                if (e.BytesRecorded == 0) return;
                 var bytesPerSample = _format.BitsPerSample / 8;
                 var count = (e.BytesRecorded / _format.BlockAlign) * _format.Channels;
                 if (_samples.Length < count) _samples = new float[count];
@@ -231,7 +258,12 @@ public sealed class AudioEngine : IDisposable
                 }
                 if (_floatBytes.Length < count * 4) _floatBytes = new byte[count * 4];
                 Buffer.BlockCopy(_samples, 0, _floatBytes, 0, count * 4);
-                _cable?.Add(_floatBytes, count * 4);
+                if (_cable != null && _transmitGate != null)
+                {
+                    if (_transmitBytes.Length < count * 4) _transmitBytes = new byte[count * 4];
+                    var sendBytes = _transmitGate.Encode(_samples.AsSpan(0, count), _transmitBytes, Environment.TickCount64);
+                    if (sendBytes > 0) _cable.Add(_transmitBytes, sendBytes);
+                }
                 _monitor?.Add(_floatBytes, count * 4);
                 if (_writer != null && !_recordSource) completed = WriteRecordingLocked(count);
                 var now = Stopwatch.GetTimestamp();
@@ -426,6 +458,7 @@ public sealed class AudioEngine : IDisposable
             }
             _dsp = null;
             _feedbackGuard = null;
+            _transmitGate = null;
             _options = null;
             _elapsed.Stop();
         }

@@ -17,7 +17,7 @@ public partial class MainWindow
             try
             {
                 var systemVolume = devices.GetInputVolume(input.Id);
-                volume.Children.Add(Parameter("系统音量", 0, 100, systemVolume.Scalar * 100, v => { devices.SetInputVolume(input.Id, v / 100); CancelCalibration(); InvalidateDiscord(); }, "%", 1));
+                volume.Children.Add(Parameter("系统音量", 0, 100, systemVolume.Scalar * 100, v => { SetSelectedInputVolume(input.Id, v / 100); CancelCalibration(); InvalidateDiscord(); }, "%", 1));
                 volume.Children.Add(ButtonSwitch("麦克风静音", systemVolume.Muted, value => { devices.SetInputMute(input.Id, value); CancelCalibration(); InvalidateDiscord(); }));
             }
             catch (Exception ex) { volume.Children.Add(T("系统音量不可调", 12, Amber)); volume.ToolTip = ex.Message; }
@@ -26,6 +26,7 @@ public partial class MainWindow
         volume.Children.Add(Parameter("输入增益", -24, 30, Draft.InputGainDb, v => vm.Change(s => s.InputGainDb = v, true), "dB"));
         playerButton = B("开始处理", () => { if (ProcessingActive) StopAudio(); else StartAudio(LocalMode); }, true);
         volume.Children.Add(Buttons(playerButton));
+        if (LocalMode) volume.Children.Add(TransmitControls());
         AdaptiveCards(Card("输入", "系统音量和静音会立即作用于所选麦克风，包括其他应用。", volume), Card("电平", "开始后显示真实峰值；采集输入可能包含 Windows 系统效果。", MeterBlock(false), LocalMode ? MeterBlock(true) : T("APO 音频生效待验证", 12, Amber)));
         var quick = new WrapPanel();
         foreach (var button in new[] { B("均衡器", () => ShowPage(1)), B("效果", () => ShowPage(2)), B("另存预设", SavePreset), B("连接", () => ShowPage(4)) }) quick.Children.Add(button);
@@ -77,6 +78,7 @@ public partial class MainWindow
         if (calibrating && m.InputPeakDb > -65 && double.IsFinite(m.InputPeakDb)) calibrationPeaks.Add(LocalMode ? m.InputPeakDb : m.OutputPeakDb);
         CaptureFooter.Text = engine.FeedbackProtectionMuted ? Loc.T("啸叫保护：已静音", "Feedback protection: muted") : (LocalMode ? Loc.T("●  处理中", "●  Processing") : Loc.T("●  测量中", "●  Measuring")) + (m.ClippedSamples > 0 ? Loc.T(" · 检测到削波", " · Clipping detected") : "");
         CaptureFooter.Foreground = engine.FeedbackProtectionMuted ? Amber : Accent;
+        UpdateTransmitChrome();
     }
     private UIElement SessionControls()
     {

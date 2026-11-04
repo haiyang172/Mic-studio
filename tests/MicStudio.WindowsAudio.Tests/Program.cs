@@ -198,6 +198,120 @@ static void RunSyntheticTests()
         Throws<ArgumentNullException>(() => engine.TryUpdateSettings(null!, engine.SessionId));
         Assert(!engine.IsRunning && !engine.IsRecording && !engine.IsPlaying);
     });
+    Test("Transmit controls cannot activate stopped stale or disposed audio sessions", () =>
+    {
+        using var devices = new AudioDeviceService();
+        var engine = new AudioEngine(devices);
+        var session = engine.SessionId;
+        Assert(new CaptureOptions { InputDeviceId = "unused" }.TransmitEnabled);
+        Assert(!engine.TransmitEnabled && !engine.SetTransmitEnabled(true, session));
+        engine.Stop();
+        Assert(!engine.SetTransmitEnabled(true, session, 300) && !engine.SetTransmitEnabled(false, engine.SessionId));
+        foreach (var invalid in new[] { -1, 1, 99, 1001 })
+            Throws<ArgumentOutOfRangeException>(() => engine.SetTransmitEnabled(true, session, invalid));
+        engine.Dispose();
+        Assert(!engine.TransmitEnabled && !engine.SetTransmitEnabled(true, engine.SessionId));
+        Assert(!engine.IsRunning && !engine.IsRecording && !engine.IsPlaying);
+    });
+    Test("Default-open send is exact while closed-start sends no first packet", () =>
+    {
+        var samples = new[] { .25f, -.5f, 0f, -.125f };
+        var sourceCopy = samples.ToArray(); var bytes = new byte[samples.Length * 4];
+        var normal = new CableTransmitGate(48000, 2, true);
+        Assert(normal.Encode(samples, bytes, 0) == bytes.Length);
+        for (var i = 0; i < samples.Length; i++) Assert(BinaryPrimitives.ReadSingleLittleEndian(bytes.AsSpan(i * 4, 4)) == samples[i]);
+        var closed = new CableTransmitGate(48000, 2, false);
+        Assert(closed.Encode(samples, bytes, 0) == 0 && bytes.All(v => v == 0));
+        Assert(samples.SequenceEqual(sourceCopy), "Gate modified shared monitor/recording/DSP samples.");
+    });
+    Test("Closing send removes queued voice and never replays it on reopen", () =>
+    {
+        var queue = new BoundedRenderBuffer(8000, 1, () => { });
+        var gate = new CableTransmitGate(8000, 1, true, queue.Clear);
+        var oldVoice = Enumerable.Repeat(.75f, 80).ToArray(); var send = new byte[320];
+        queue.Add(send, gate.Encode(oldVoice, send, 0));
+        Assert(queue.Provider.BufferedBytes == send.Length);
+        Assert(gate.SetEnabled(false, 0, 1) && queue.Provider.BufferedBytes == 0);
+        var heard = Enumerable.Repeat((byte)255, 320).ToArray();
+        queue.Provider.Read(heard, 0, heard.Length);
+        Assert(heard.All(v => v == 0), "Queued voice remained audible after closing.");
+        Assert(gate.Encode(oldVoice, send, 2) == 0 && send.All(v => v == 0));
+        gate.SetEnabled(true, 0, 3);
+        var freshVoice = Enumerable.Repeat(-.25f, 80).ToArray();
+        queue.Add(send, gate.Encode(freshVoice, send, 4)); queue.Provider.Read(heard, 0, heard.Length);
+        for (var i = 0; i < 80; i++) Assert(BinaryPrimitives.ReadSingleLittleEndian(heard.AsSpan(i * 4, 4)) < 0, "Old positive voice replayed.");
+        Assert(oldVoice.All(v => v == .75f) && freshVoice.All(v => v == -.25f));
+    });
+    Test("PTT send lease expires without a UI callback and clears old packets", () =>
+    {
+        var cleared = 0;
+        var queue = new BoundedRenderBuffer(48000, 1, () => { });
+        var gate = new CableTransmitGate(48000, 1, false, () => { queue.Clear(); cleared++; });
+        var samples = Enumerable.Repeat(.5f, 480).ToArray(); var bytes = new byte[samples.Length * 4];
+        gate.SetEnabled(true, 300, 1000);
+        queue.Add(bytes, gate.Encode(samples, bytes, 1299));
+        Assert(gate.Enabled && queue.Provider.BufferedBytes > 0);
+        Assert(gate.Encode(samples, bytes, 1300) == 0 && bytes.All(v => v == 0));
+        Assert(!gate.Enabled && queue.Provider.BufferedBytes == 0 && cleared == 1);
+        Assert(!gate.ObserveEnabled(1400) && cleared == 1);
+    });
+    Test("Fresh PTT renewal extends the lease without restarting the stereo fade", () =>
+    {
+        var gate = new CableTransmitGate(48000, 2, false);
+        var samples = Enumerable.Repeat(1f, 240).ToArray(); var bytes = new byte[samples.Length * 4];
+        gate.SetEnabled(true, 300, 1000);
+        gate.Encode(samples, bytes, 1001);
+        Assert(Math.Abs(BinaryPrimitives.ReadSingleLittleEndian(bytes.AsSpan(bytes.Length - 4)) - .5f) < 1e-6);
+        Assert(!gate.SetEnabled(true, 300, 1100));
+        gate.Encode(samples, bytes, 1101);
+        Assert(BinaryPrimitives.ReadSingleLittleEndian(bytes.AsSpan(0, 4)) > .5f);
+        Assert(BinaryPrimitives.ReadSingleLittleEndian(bytes.AsSpan(bytes.Length - 4)) == 1);
+        for (var frame = 0; frame < 120; frame++)
+            Assert(BinaryPrimitives.ReadSingleLittleEndian(bytes.AsSpan(frame * 8, 4)) == BinaryPrimitives.ReadSingleLittleEndian(bytes.AsSpan(frame * 8 + 4, 4)));
+        Assert(gate.ObserveEnabled(1399) && !gate.ObserveEnabled(1400));
+    });
+    Test("Late renewal discards the expired lease before fading fresh speech", () =>
+    {
+        var cleared = 0; var gate = new CableTransmitGate(8000, 1, false, () => cleared++);
+        var samples = Enumerable.Repeat(1f, 80).ToArray(); var bytes = new byte[320];
+        gate.SetEnabled(true, 100, 1000); gate.Encode(samples, bytes, 1001);
+        Assert(gate.SetEnabled(true, 100, 1100) && cleared == 1);
+        gate.Encode(samples, bytes, 1100);
+        Assert(BinaryPrimitives.ReadSingleLittleEndian(bytes.AsSpan(0, 4)) < .1f);
+        Assert(BinaryPrimitives.ReadSingleLittleEndian(bytes.AsSpan(316, 4)) == 1);
+        gate.SetEnabled(true, 0, 1101);
+        Assert(gate.ObserveEnabled(999999), "Normal continuous sending should not require a lease.");
+    });
+    Test("Send fade is invariant to packet sizes and sanitizes its private copy", () =>
+    {
+        var samples = Enumerable.Repeat(.5f, 960).ToArray(); samples[40] = float.NaN; samples[41] = float.PositiveInfinity;
+        var whole = new byte[samples.Length * 4]; var chunked = new byte[whole.Length];
+        var fullGate = new CableTransmitGate(48000, 2, false); fullGate.SetEnabled(true, 0, 0);
+        var chunkGate = new CableTransmitGate(48000, 2, false); chunkGate.SetEnabled(true, 0, 0);
+        fullGate.Encode(samples, whole, 1);
+        var position = 0;
+        foreach (var frames in new[] { 1, 7, 50, 3, 99, 320 })
+        {
+            var count = frames * 2;
+            chunkGate.Encode(samples.AsSpan(position, count), chunked.AsSpan(position * 4, count * 4), 1);
+            position += count;
+        }
+        Assert(position == samples.Length && whole.SequenceEqual(chunked));
+        Assert(float.IsNaN(samples[40]) && float.IsPositiveInfinity(samples[41]));
+        Assert(BinaryPrimitives.ReadSingleLittleEndian(whole.AsSpan(40 * 4, 4)) == 0 && BinaryPrimitives.ReadSingleLittleEndian(whole.AsSpan(41 * 4, 4)) == 0);
+        Throws<ArgumentException>(() => fullGate.Encode(new float[3], new byte[12], 2));
+        Throws<ArgumentException>(() => fullGate.Encode(new float[4], new byte[8], 2));
+    });
+    Test("Send encoding and lease refresh allocate no per-packet audio buffers", () =>
+    {
+        var gate = new CableTransmitGate(48000, 2, false);
+        var samples = new float[960]; var bytes = new byte[samples.Length * 4];
+        for (var warm = 0; warm < 64; warm++) { gate.SetEnabled(true, 300, 1000); gate.Encode(samples, bytes, 1001); }
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var packet = 0; packet < 1000; packet++) { gate.SetEnabled(true, 300, 1000); gate.Encode(samples, bytes, 1001); }
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert(allocated == 0, $"Send encoding allocated {allocated} bytes.");
+    });
     Test("Endpoint cable direction is explicit", () =>
     {
         Assert(AudioDeviceService.IsCableInput("CABLE Input (VB-Audio Virtual Cable)"));
@@ -538,6 +652,7 @@ static void RunSyntheticTests()
         Throws<OperationCanceledException>(() => OfflineAudioProcessor.ProcessFile(input, Path.Combine(directory, "wet.wav"), NoEqSettings(), cancellationToken: canceled.Token));
         Assert(Directory.GetFiles(directory).Length == 1 && File.Exists(input));
     }));
+    count += MicrophoneVolumeLockChecks.Run();
     Console.WriteLine($"PASS {count} WindowsAudio synthetic/idle tests. No microphone capture, recording, or playback was started.");
 
     void Test(string name, Action body) { body(); count++; Console.WriteLine($"PASS {name}"); }
