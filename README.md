@@ -6,6 +6,8 @@ Windows 原生麦克风调节软件，使用 C# / WPF / .NET 10。面向可选�
 
 [下载发行版](https://github.com/haiyang172/Mic-studio/releases) · [图标与 Logo 源文件](assets/branding/) · [0.5.1 更新说明](docs/release-0.5.1.md)
 
+后续功能、实施顺序与验收条件见 [升级路线图](docs/upgrade-roadmap.md)；原有需求与 P1～P5 记录见 [升级计划书](docs/upgrade-plan.md)。
+
 ## 使用
 
 双击 `MicStudio.exe`。发行包自带运行时，不需要 SDK。可使用便携目录，也可运行 `MicStudio.Setup.exe` 安装到当前用户。默认不打开麦克风、监听或录音；普通操作无需管理员。
