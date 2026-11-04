@@ -17,10 +17,10 @@ if ($process.ExitCode -ne 0) {
 $controls = Get-Content -LiteralPath (Join-Path $report 'control-events.json') -Raw | ConvertFrom-Json
 $layout = Get-Content -LiteralPath (Join-Path $report 'layout-report.json') -Raw | ConvertFrom-Json
 $english = Get-Content -LiteralPath (Join-Path $report 'english-ui.json') -Raw | ConvertFrom-Json
-if ($controls.Passed -lt 51 -or $controls.Passed -ne $controls.Checks.Count -or $layout.Results.Count -ne 27 -or
+if ($controls.Passed -lt 80 -or $controls.Passed -ne $controls.Checks.Count -or $layout.Results.Count -ne 30 -or
     @($layout.Results | Where-Object { $_.RightOverflow -or !$_.ScrollReachable }).Count -ne 0 -or
     $english.Pages.Count -ne 7 -or $english.ChineseTextCount -ne 0 -or
-    $english.Layouts.Count -ne 27 -or $english.LayoutFailures -ne 0) {
+    $english.Layouts.Count -ne 30 -or $english.LayoutFailures -ne 0) {
     [pscustomobject]@{ ControlChecks=$controls.Passed; RecordedChecks=$controls.Checks.Count; Layouts=$layout.Results.Count; EnglishPages=$english.Pages.Count; ChineseTextCount=$english.ChineseTextCount; EnglishLayouts=$english.Layouts.Count; EnglishLayoutFailures=$english.LayoutFailures } | ConvertTo-Json | Write-Output
     if ($english.ChineseTextCount -ne 0) { $english | ConvertTo-Json -Depth 5 | Write-Output }
     throw 'UI verification report is incomplete.'

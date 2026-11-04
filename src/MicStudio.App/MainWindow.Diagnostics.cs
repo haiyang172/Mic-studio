@@ -68,6 +68,8 @@ public partial class MainWindow
             Buttons(
                 B("简体中文", () => SetLanguage(UiText.Chinese), State.Language == UiText.Chinese),
                 B("English", () => SetLanguage(UiText.English), State.Language == UiText.English))));
+        Add(ShortcutSettingsCard());
+        Add(VolumeLockSettingsCard());
         Add(Card("启动与后台", "关闭窗口默认收进托盘并继续运行；托盘可随时停止或退出。",
             Toggle("关闭到托盘，保持当前本地音频运行", State.MinimizeToTray, value => { State.MinimizeToTray = value; if (value) EnsureTray(); else if (!startHidden) { tray?.Dispose(); tray = null; trayIcon?.Dispose(); trayIcon = null; trayProcessingItem = null; } SaveSoon(); }),
             T("启用后，托盘菜单可随时停止音频或退出。程序重新启动仍不会自动采集。", 11, Muted),

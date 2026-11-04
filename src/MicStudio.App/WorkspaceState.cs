@@ -24,6 +24,10 @@ public sealed class WorkspaceState
     public bool MinimizeToTray { get; set; } = true;
     public bool LaunchAtLogin { get; set; }
     public bool AutoStartProcessing { get; set; }
+    public ShortcutPreferences Shortcuts { get; set; } = new();
+    public bool TransmitMuted { get; set; }
+    public bool VolumeLockEnabled { get; set; }
+    public string? VolumeLockEndpointId { get; set; }
     public string Language { get; set; } = UiText.Chinese;
 
     /// <summary>
@@ -44,5 +48,7 @@ public sealed class WorkspaceState
         if (Presets is null || Presets.Count > 200) throw new ArgumentException(UiText.T("工作区预设数量无效。", "The workspace preset count is invalid."));
         if (Language is not (UiText.Chinese or UiText.English)) Language = UiText.Chinese;
         if (Theme is not ("dark" or "light")) Theme = "dark";
+        Shortcuts ??= new(); Shortcuts.Normalize();
+        if (VolumeLockEnabled && string.IsNullOrWhiteSpace(VolumeLockEndpointId)) VolumeLockEnabled = false;
     }
 }

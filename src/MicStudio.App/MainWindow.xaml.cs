@@ -48,7 +48,7 @@ public partial class MainWindow : Window
     private bool forceClose;
     private string? noticeRawText;
     private string applyState = "设置已就绪";
-    private static string ProductVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.5.1";
+    private static string ProductVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.6.0";
 
     private Brush Ink => (Brush)FindResource("Ink");
     private Brush Muted => (Brush)FindResource("Muted");
@@ -68,6 +68,7 @@ public partial class MainWindow : Window
         Height = Math.Min(820, SystemParameters.WorkArea.Height - 24);
         engine = new(devices);
         InitializeEchoProtectionNotifications();
+        InitializeBackgroundControls();
         nativeLeaseTimer.Tick += (_, _) => RefreshNativeLease();
         driverManager.DownloadProgressChanged += progress => Dispatcher.BeginInvoke(() => { if (!closed && driverStatusText != null) driverStatusText.Text = progress.Percent is { } percent ? Loc.F("下载中 {0}%", "Downloading {0}%", percent) : Loc.F("已下载 {0} KB", "Downloaded {0} KB", progress.BytesReceived / 1024); });
         applied = Draft.Clone();
@@ -83,7 +84,7 @@ public partial class MainWindow : Window
         InputPicker.SelectionChanged += (_, _) =>
         {
             if (refreshing || InputPicker.SelectedItem is not AudioDeviceInfo item || item.Id == State.InputDeviceId) return;
-            StopAudio(); suggestedGain = null; State.InputDeviceId = item.Id; InvalidateDiscord(); SaveSoon(); ShowPage(currentPage);
+            StopAudio(); DisableVolumeLockForDeviceChange(); suggestedGain = null; State.InputDeviceId = item.Id; InvalidateDiscord(); SaveSoon(); ShowPage(currentPage);
         };
         ModePicker.SelectionChanged += (_, _) =>
         {
@@ -114,7 +115,7 @@ public partial class MainWindow : Window
         calibrationTimer.Tick += (_, _) => CompleteCalibration();
         PreviewKeyDown += (_, e) =>
         {
-            if ((Keyboard.Modifiers & ModifierKeys.Control) == 0 || Keyboard.FocusedElement is TextBox) return;
+            if ((Keyboard.Modifiers & ModifierKeys.Control) == 0 || (Keyboard.Modifiers & (ModifierKeys.Alt | ModifierKeys.Windows)) != 0 || Keyboard.FocusedElement is TextBox) return;
             if (e.Key == Key.S) { SavePreset(); e.Handled = true; }
         };
         SizeChanged += (_, _) => UpdateCompact();
@@ -133,6 +134,7 @@ public partial class MainWindow : Window
         };
         ApplyTheme(); ShowPage(0); UpdateCompact();
         InitializeTrayBranding();
+        InitializeBackgroundHandle();
         if (startHidden) { EnsureTray(); Hide(); if (State.LaunchAtLogin && State.AutoStartProcessing) TryAutoStart(); }
         if (vm.RecoveryWarning is not null) Notice(vm.RecoveryWarning);
     }
@@ -207,6 +209,7 @@ public partial class MainWindow : Window
     {
         if (closed) return;
         closed = true; saveTimer.Stop(); liveTimer.Stop(); calibrationTimer.Stop();
+        DisposeBackgroundControls();
         DisposeTrayBranding();
         StopNativeProcessing();
         lifetime.Cancel();
@@ -295,6 +298,7 @@ public partial class MainWindow : Window
         var wasBuilding = building; building = true;
         try { foreach (var refresh in soundControlRefreshers.ToArray()) refresh(); }
         finally { building = wasBuilding; }
+        UpdateTransmitChrome();
     }
     private void SaveSoon() { saveTimer.Stop(); saveTimer.Start(); }
     private void InvalidateDiscord() { State.DiscordVerifiedAt = null; UpdateChrome(); }
@@ -310,6 +314,7 @@ public partial class MainWindow : Window
     private void Safe(Action action) { try { action(); } catch (Exception ex) { Notice(ex.Message); } }
     private void StopAudio()
     {
+        ResetPttForSafety(true);
         StopNativeProcessing();
         activeCableSendId = null;
         liveTimer.Stop();
@@ -325,6 +330,7 @@ public partial class MainWindow : Window
             var previous = SelectedInput;
             inputs = devices.EnumerateInputs(); outputs = devices.EnumerateOutputs();
             var current = SelectedInput;
+            CheckVolumeLockDevice();
             if (nativeWriter != null && (current is not { IsActive: true } || previous?.SampleRate != current.SampleRate || previous?.Channels != current.Channels))
             {
                 StopNativeProcessing(); UpdateChrome();
@@ -370,8 +376,10 @@ public partial class MainWindow : Window
                 CheckExternalPlaybackRouting();
             }
             liveTimer.Stop();
+            ResetPttForSafety(true);
             engine.Start(new CaptureOptions { InputDeviceId = input.Id, ProcessLocally = LocalMode, Settings = snapshot, CableOutputDeviceId = cable ? State.CableOutputId : null, MonitorOutputDeviceId = monitor ? monitorId : null, MonitorConfirmedHeadphones = headphones,
-                EchoCancellationEnabled = LocalMode && State.EchoCancellationEnabled, EchoReferenceOutputDeviceId = State.EchoReferenceOutputDeviceId });
+                EchoCancellationEnabled = LocalMode && State.EchoCancellationEnabled, EchoReferenceOutputDeviceId = State.EchoReferenceOutputDeviceId,
+                TransmitEnabled = !State.TransmitMuted && !State.Shortcuts.PushToTalkEnabled });
             activeCableSendId = cable ? State.CableOutputId : null;
             applied = snapshot; applyState = LocalMode ? "实时调音" : "APO 音频待验证"; UpdateChrome();
             if (adjusted.Count > 0) Notice(Loc.T("已按当前设备采样率适配 EQ：", "EQ fitted to the current device sample rate: ") + Loc.Join(adjusted) + Loc.T("。原预设参数已保留。", ". The saved preset parameters were preserved."));
@@ -532,7 +540,10 @@ public partial class MainWindow : Window
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         trayProcessingItem = new System.Windows.Forms.ToolStripMenuItem("", null, (_, _) => Dispatcher.Invoke(ToggleProcessing));
         menu.Items.Add(trayProcessingItem);
+        trayTransmitItem = new System.Windows.Forms.ToolStripMenuItem(Loc.T("发送静音", "Mute send"), null, (_, _) => Dispatcher.Invoke(() => SetTransmitMuted(!State.TransmitMuted)));
+        menu.Items.Add(trayTransmitItem);
         menu.Items.Add(Loc.T("停止所有本地音频", "Stop all local audio"), null, (_, _) => Dispatcher.Invoke(StopAudio));
+        menu.Items.Add(Loc.T("快捷键设置", "Shortcut settings"), null, (_, _) => Dispatcher.Invoke(() => { ShowMainWindow(); ShowPage(6); }));
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add(Loc.T("退出", "Exit"), null, (_, _) => Dispatcher.Invoke(ExitApplication));
         menu.Opening += (_, _) => UpdateTrayMenu();
@@ -545,6 +556,10 @@ public partial class MainWindow : Window
         tray.Text = ProcessingActive
             ? Loc.T("Mic Studio · 正在处理本地音频", "Mic Studio · processing local audio")
             : Loc.T("Mic Studio · 后台运行", "Mic Studio · background");
+        if (LocalMode && engine.IsRunning && activeCableSendId != null && (State.TransmitMuted || State.Shortcuts.PushToTalkEnabled))
+            tray.Text = State.TransmitMuted ? Loc.T("Mic Studio · 发送已静音", "Mic Studio · send muted") : engine.TransmitEnabled ? Loc.T("Mic Studio · 正在发送", "Mic Studio · sending") : Loc.T("Mic Studio · 等待按住说话", "Mic Studio · waiting for push-to-talk");
+        if (engine.FeedbackProtectionMuted) tray.Text = Loc.T("Mic Studio · 啸叫保护已静音", "Mic Studio · feedback protection muted");
+        if (trayTransmitItem != null) { trayTransmitItem.Checked = State.TransmitMuted; trayTransmitItem.Enabled = LocalMode; }
         if (trayProcessingItem == null) return;
         trayProcessingItem.Text = ProcessingActive ? Loc.T("暂停处理", "Pause processing") : Loc.T("继续处理", "Resume processing");
         trayProcessingItem.Enabled = ProcessingActive || SelectedInput is { IsActive: true };

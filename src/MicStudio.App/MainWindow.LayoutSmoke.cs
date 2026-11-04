@@ -20,9 +20,9 @@ public partial class MainWindow
             for (var page = 0; page < 7; page++)
             {
                 ShowPage(page);
-                foreach (var details in page is 1 or 2 ? new[] { false, true } : new[] { false })
+                foreach (var details in page is 1 or 2 or 6 ? new[] { false, true } : new[] { false })
                 {
-                foreach (var expander in Descendants<Expander>(PageContent).Where(e => e.Header as string == "高级功能")) expander.IsExpanded = details;
+                foreach (var expander in Descendants<Expander>(PageContent).Where(e => e.Header as string is "高级功能" or "编辑快捷键")) expander.IsExpanded = details;
                 await Dispatcher.InvokeAsync(() => UpdateLayout(), DispatcherPriority.Render); await Task.Delay(50);
                 var rightOverflow = PageContent.ActualWidth > PageScroll.ViewportWidth + 3;
                 var buttons = Descendants<System.Windows.Controls.Button>(PageContent).Count();
@@ -35,10 +35,21 @@ public partial class MainWindow
                 var bitmap = new RenderTargetBitmap((int)((FrameworkElement)Content).ActualWidth, (int)((FrameworkElement)Content).ActualHeight, 96, 96, PixelFormats.Pbgra32); bitmap.Render(visual);
                 var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
                 using var file = File.Create(Path.Combine(directory, $"{size.W}x{size.H}-{page + 1}{(details ? "-advanced" : "")}.png")); encoder.Save(file);
+                if (page == 6 && details)
+                {
+                    var shortcutsEditor = Descendants<Expander>(PageContent).Single(e => e.Header as string == "编辑快捷键");
+                    shortcutsEditor.BringIntoView();
+                    await Dispatcher.InvokeAsync(() => UpdateLayout(), DispatcherPriority.Render);
+                    var shortcutBitmap = new RenderTargetBitmap((int)((FrameworkElement)Content).ActualWidth, (int)((FrameworkElement)Content).ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                    shortcutBitmap.Render(visual);
+                    var shortcutEncoder = new PngBitmapEncoder(); shortcutEncoder.Frames.Add(BitmapFrame.Create(shortcutBitmap));
+                    using var shortcutFile = File.Create(Path.Combine(directory, $"shortcuts-{size.W}x{size.H}.png")); shortcutEncoder.Save(shortcutFile);
+                    PageScroll.ScrollToTop();
+                }
                 }
             }
         }
-        File.WriteAllText(Path.Combine(directory, "layout-report.json"), JsonSerializer.Serialize(new { Method = "Actual WPF window layout at 3 DIP sizes, all 7 pages plus expanded EQ/effects; OS DPI unchanged. Manual UI interaction separate.", Results = results }, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(Path.Combine(directory, "layout-report.json"), JsonSerializer.Serialize(new { Method = "Actual WPF window layout at 3 DIP sizes, all 7 pages plus expanded EQ/effects/shortcuts; OS DPI unchanged. Manual UI interaction separate.", Results = results }, new JsonSerializerOptions { WriteIndented = true }));
         State.Theme = "light"; ApplyTheme(); Width = 1280; Height = 820;
         foreach (var page in new[] { 0, 2, 4, 6 })
         {
@@ -70,9 +81,9 @@ public partial class MainWindow
         for (var page = 0; page < 7; page++)
         {
             ShowPage(page);
-            foreach (var details in page is 1 or 2 ? new[] { false, true } : new[] { false })
+            foreach (var details in page is 1 or 2 or 6 ? new[] { false, true } : new[] { false })
             {
-                foreach (var expander in Descendants<Expander>(PageContent).Where(e => e.Header as string == Loc.T("高级功能", "Advanced"))) expander.IsExpanded = details;
+                foreach (var expander in Descendants<Expander>(PageContent).Where(e => e.Header as string == Loc.T("高级功能", "Advanced") || e.Header as string == Loc.T("编辑快捷键", "Edit shortcuts"))) expander.IsExpanded = details;
                 UpdateLayout();
                 foreach (var text in Descendants<TextBlock>(PageContent))
                 {
@@ -106,10 +117,10 @@ public partial class MainWindow
             Width = Math.Min(size.W, SystemParameters.WorkArea.Width); Height = Math.Min(size.H, SystemParameters.WorkArea.Height);
             for (var page = 0; page < 7; page++)
             {
-                foreach (var details in page is 1 or 2 ? new[] { false, true } : new[] { false })
+                foreach (var details in page is 1 or 2 or 6 ? new[] { false, true } : new[] { false })
                 {
                     ShowPage(page);
-                    foreach (var expander in Descendants<Expander>(PageContent).Where(e => e.Header as string == Loc.T("高级功能", "Advanced"))) expander.IsExpanded = details;
+                    foreach (var expander in Descendants<Expander>(PageContent).Where(e => e.Header as string == Loc.T("高级功能", "Advanced") || e.Header as string == Loc.T("编辑快捷键", "Edit shortcuts"))) expander.IsExpanded = details;
                     UpdateLayout();
                     var rightOverflow = PageContent.ActualWidth > PageScroll.ViewportWidth + 3;
                     PageScroll.ScrollToEnd(); UpdateLayout();
@@ -258,6 +269,7 @@ public partial class MainWindow
         legacy.Normalize();
         Check(legacy.SchemaVersion == 2 && legacy.MinimizeToTray && legacy.Language == UiText.Chinese, "P1 workspace migrates to tray default and a supported language");
 
+        RunBackgroundControlChecks(Check);
         State.LaunchAtLogin = true; State.AutoStartProcessing = true; State.Language = UiText.Chinese; vm.Save();
         var preferenceReload = new StudioViewModel();
         Check(preferenceReload.State.LaunchAtLogin && preferenceReload.State.AutoStartProcessing, "Startup preferences persist separately from audio parameters");
@@ -281,10 +293,14 @@ public partial class MainWindow
         Check(activeTray.ContextMenuStrip?.Items.OfType<System.Windows.Forms.ToolStripMenuItem>().Any(i => i.Text == "继续处理") == true, "Tray exposes resume while audio is stopped");
         Check(activeTray.ContextMenuStrip!.Items.OfType<System.Windows.Forms.ToolStripMenuItem>().Any(i => i.Text == "打开 Mic Studio"), "Tray can reopen the window");
         Check(activeTray.ContextMenuStrip.Items.OfType<System.Windows.Forms.ToolStripMenuItem>().Any(i => i.Text == "退出"), "Tray has an explicit exit, separate from closing the window");
+        Check(trayTransmitItem is { Enabled: true, Checked: false }, "Tray exposes independent local send mute");
+        trayTransmitItem!.PerformClick();
+        Check(State.TransmitMuted && trayTransmitItem.Checked && !engine.IsRunning, "Tray mute updates preference without starting capture");
+        trayTransmitItem.PerformClick();
         Show(); State.MinimizeToTray = true; Close();
         Check(!IsVisible && !closed, "Closing the window hides to tray instead of stopping the application");
         Show(); State.MinimizeToTray = false;
-        activeTray.ContextMenuStrip!.Dispose(); activeTray.Dispose(); tray = null; trayIcon?.Dispose(); trayIcon = null; trayProcessingItem = null;
+        activeTray.ContextMenuStrip!.Dispose(); activeTray.Dispose(); tray = null; trayIcon?.Dispose(); trayIcon = null; trayProcessingItem = null; trayTransmitItem = null;
 
         File.WriteAllText(Path.Combine(directory, "control-events.json"), JsonSerializer.Serialize(new { Method = "Actual WPF controls and routed handlers in application test mode; not physical mouse/keyboard automation or microphone acceptance.", Passed = checks.Count, Checks = checks }, new JsonSerializerOptions { WriteIndented = true }));
     }

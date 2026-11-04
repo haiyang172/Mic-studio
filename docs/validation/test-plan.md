@@ -1,6 +1,6 @@
 # Mic Studio verification and acceptance
 
-Date: 2026-10-29 (Australia/Sydney). This file defines the acceptance procedure. An unchecked item is pending, not passed. The app's status indicators and a saved configuration are not substitutes for the manual audio checks below.
+Date: 2026-11-04 (Australia/Sydney). This file defines the acceptance procedure. An unchecked item is pending, not passed. The app's status indicators and a saved configuration are not substitutes for the manual audio checks below.
 
 ## Automated checks
 
@@ -10,6 +10,7 @@ Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test.ps1` from 
 - [x] Final functional run passed Core 28, APO 19, WindowsAudio 25 and Components 24, including the pinned component's actual installer signature without launching it. Native Setup's subsequent manifest-preservation changes passed 40 independent checks. Current results are recorded in `release-0.1.0.md`.
 - [x] 0.3.0 run passed Core 38, APO 20, WindowsAudio 39, Components 24 and Setup 40; WPF checks passed 43 control events with 27 Chinese and 27 English layouts and zero untranslated visible English text. Results are recorded in `p2-background.md`.
 - [x] 0.4.0 run passed Core 40, APO 20, WindowsAudio 39, Components 24 and Setup 40; WPF checks passed 47 control events with 27 Chinese and 27 English layouts and zero untranslated visible English text. Results are recorded in `p3-p5.md`.
+- [x] 0.6.0 run passed Core 40, APO 20, WindowsAudio 84, Shortcuts 14, Components 24, NativeApo 26 and Setup 40. WPF checks passed 80 control events, 30 Chinese and 30 English layouts, zero untranslated visible English text. New shortcut and volume adapters were simulated; no real hotkeys or endpoint writes occurred. See `p6-background-controls.md`.
 - [x] Release WPF build completed with restored locked dependencies, zero compiler warnings and zero errors on this machine.
 - [x] Self-contained `win-x64` EXE started on this Windows 11 x64 machine and loaded the bundled hostfxr/coreclr/WPF libraries; no developer SDK is used by the published process. A separate fresh-machine run remains pending.
 - [x] Published ZIP/setup checksums match `dist/SHA256SUMS.txt`; package excludes SDK, user audio, settings, logs and credentials. Standard VB-CABLE bytes match the pinned original SHA-256, retain attribution/donation links, and exclude A+B/C+D.
@@ -51,7 +52,7 @@ All automated audio samples are synthesized in memory or in temporary test stora
 - [ ] Select helium/loli/monster and confirm the pitch change is audible without dropouts, excessive grain, long latency or uncontrolled gain. These are delay-line pitch previews, not formant-preserving voice change.
 - [ ] Select phone/radio and explosion themes; check band-limited intelligibility, distortion, output ceiling and receiving-app level.
 - [ ] Combine a theme with EQ, compression, limiter and cable send; switch themes during running audio and confirm no long silence, pop or stuck state.
-- [ ] **AEC and room-reverb suppression are not implemented.** Do not mark them passed; a future build needs playback reference capture, double-talk testing and separate echo/reverb acceptance.
+- [ ] Since 0.5.0, playback-reference AEC and independent sustained-feedback protection have a synthetic-tested preview; actual room echo, double-talk and Discord monitoring remain pending. Room-reverb suppression is not implemented.
 
 
 ## Direct APO path

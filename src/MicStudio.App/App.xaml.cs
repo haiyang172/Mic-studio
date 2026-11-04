@@ -14,6 +14,7 @@ public partial class App : System.Windows.Application
             // Diagnostic control tests must never overwrite the user's real workspace.
             var isolated = Path.Combine(Path.GetFullPath(e.Args[1]), "test-state-" + Guid.NewGuid().ToString("N"));
             Environment.SetEnvironmentVariable("MICSTUDIO_DATA_DIR", isolated);
+            Environment.SetEnvironmentVariable("MICSTUDIO_UI_SMOKE", "1");
         }
         DispatcherUnhandledException += (_, ev) => { MessageBox.Show(ev.Exception.Message, Loc.T("Mic Studio · 操作未完成", "Mic Studio · Action not completed"), MessageBoxButton.OK, MessageBoxImage.Warning); ev.Handled = true; };
         if (e.Args.Length == 2 && e.Args[0] == "--startup-smoke")
