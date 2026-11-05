@@ -27,6 +27,7 @@ public sealed class WorkspaceState
     public ShortcutPreferences Shortcuts { get; set; } = new();
     public bool TransmitMuted { get; set; }
     public bool VolumeLockEnabled { get; set; }
+    public bool ResumeSameDevice { get; set; }
     public string? VolumeLockEndpointId { get; set; }
     public string Language { get; set; } = UiText.Chinese;
 

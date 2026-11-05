@@ -653,6 +653,8 @@ static void RunSyntheticTests()
         Assert(Directory.GetFiles(directory).Length == 1 && File.Exists(input));
     }));
     count += MicrophoneVolumeLockChecks.Run();
+    count += DeviceRecoveryChecks.Run();
+    count += RecoveryCaptureContractChecks.Run();
     Console.WriteLine($"PASS {count} WindowsAudio synthetic/idle tests. No microphone capture, recording, or playback was started.");
 
     void Test(string name, Action body) { body(); count++; Console.WriteLine($"PASS {name}"); }

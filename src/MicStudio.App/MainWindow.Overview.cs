@@ -44,7 +44,7 @@ public partial class MainWindow
         sound.Children.Add(MeterBlock(false));
         sound.Children.Add(LocalMode ? MeterBlock(true) : T("APO 音频生效待验证", 12, Amber));
         sound.Children.Add(T(routeText, 12, route.IsReady || !LocalMode ? Muted : Amber));
-        if (LocalMode && !route.IsReady) sound.Children.Add(B(Loc.T("检查连接", "Check connection"), () => ShowPage(4)));
+        sound.Children.Add(B(Loc.T("查看线路", "View signal path"), () => ShowPage(4)));
         AdaptiveCards(
             Card("输入", "系统音量和静音会立即作用于所选麦克风，包括其他应用。", volume),
             Card("音色", "开始后显示真实峰值；采集输入可能包含 Windows 系统效果。", sound));
@@ -99,6 +99,7 @@ public partial class MainWindow
         CaptureFooter.Text = engine.FeedbackProtectionMuted ? Loc.T("啸叫保护：已静音", "Feedback protection: muted") : (LocalMode ? Loc.T("●  处理中", "●  Processing") : Loc.T("●  测量中", "●  Measuring")) + (m.ClippedSamples > 0 ? Loc.T(" · 检测到削波", " · Clipping detected") : "");
         CaptureFooter.Foreground = engine.FeedbackProtectionMuted ? Amber : Accent;
         UpdateTransmitChrome();
+        UpdateSignalPath();
     }
     private UIElement SessionControls()
     {
@@ -161,6 +162,7 @@ public partial class MainWindow
         {
             if (engine.LastRecordingPath is null) { Notice("尚无本次会话的试听录音。"); return; }
             if (State.PlaybackOutputId is null || !headphones) { Notice("请在连接页明确选择物理输出，并确认使用耳机，再回放。"); return; }
+            CancelDeviceRecovery("playback_started");
             engine.PlayRecording(engine.LastRecordingPath, State.PlaybackOutputId);
         }), B("停止回放", engine.StopPlayback)));
         p.Children.Add(Buttons(B("录制 A/B 源 · 30 秒", () =>
@@ -187,6 +189,7 @@ public partial class MainWindow
     {
         if (comparison is null) { Notice("先生成同源 A/B。"); return; }
         if (State.PlaybackOutputId is null || !headphones) { Notice("先在设备页选择并确认耳机。"); return; }
+        CancelDeviceRecovery("playback_started");
         engine.PlayRecording(processed ? comparison.ProcessedPath : comparison.ReferencePath, State.PlaybackOutputId);
     }
 }

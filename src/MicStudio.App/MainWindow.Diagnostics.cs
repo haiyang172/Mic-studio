@@ -9,7 +9,7 @@ public partial class MainWindow
     {
         var permission = new System.Security.Principal.WindowsPrincipal(System.Security.Principal.WindowsIdentity.GetCurrent()).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator)
             ? Loc.T("管理员", "Administrator") : Loc.T("普通权限", "Standard user");
-        var route = LocalMode ? Loc.T("本地 DSP", "Local DSP") : Loc.T("APO 直接输入", "APO direct input");
+        var route = LocalMode ? Loc.T("本地 DSP", "Local DSP") : NativeMode ? Loc.T("自研 APO 预览", "Native APO preview") : Loc.T("APO 直接输入", "APO direct input");
         var apoText = apo.Found ? Loc.F("组件已检测 {0}", "Component detected {0}", apo.Version) : Loc.T("未检测到", "Not found");
         var selected = SelectedInput?.IsActive == true ? Loc.T("已连接", "Connected") : Loc.T("未连接", "Not connected");
         var capture = engine.IsRunning ? Loc.T("运行中", "Running") : Loc.T("关闭", "Off");
@@ -36,7 +36,7 @@ public partial class MainWindow
             ProductVersion, DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm zzz"), Environment.OSVersion.VersionString, permission,
             route, inputs.Count(d => d.IsActive), selected, SampleRate,
             apoText, Loc.T("待验证", "Not verified"), outputs.Count(d => d.IsActive && d.IsCableSend), inputs.Count(d => d.IsActive && d.IsCableReceive),
-            capture, recording, engine.OutputBufferResets, meter, algorithmMs, Loc.T("待实际确认", "Pending real verification")) + EchoDiagnosticDetails();
+            capture, recording, engine.OutputBufferResets, meter, algorithmMs, Loc.T("待实际确认", "Pending real verification")) + EchoDiagnosticDetails() + SignalPathDiagnosticDetails() + RecoveryDiagnosticDetails();
     }
     private void BuildDiagnostics()
     {
@@ -70,6 +70,7 @@ public partial class MainWindow
                 B("English", () => SetLanguage(UiText.English), State.Language == UiText.English))));
         Add(ShortcutSettingsCard());
         Add(VolumeLockSettingsCard());
+        Add(DeviceRecoveryControls());
         Add(Card("启动与后台", "关闭窗口默认收进托盘并继续运行；托盘可随时停止或退出。",
             Toggle("关闭到托盘，保持当前本地音频运行", State.MinimizeToTray, value => { State.MinimizeToTray = value; if (value) EnsureTray(); else if (!startHidden) { tray?.Dispose(); tray = null; trayIcon?.Dispose(); trayIcon = null; trayProcessingItem = null; } SaveSoon(); }),
             T("启用后，托盘菜单可随时停止音频或退出。程序重新启动仍不会自动采集。", 11, Muted),
