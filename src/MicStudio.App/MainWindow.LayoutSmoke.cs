@@ -313,6 +313,7 @@ public partial class MainWindow
         Check(legacy.SchemaVersion == 2 && legacy.MinimizeToTray && legacy.Language == UiText.Chinese, "P1 workspace migrates to tray default and a supported language");
 
         RunBackgroundControlChecks(Check);
+        RunDeviceRecoveryChecks(Check);
         State.LaunchAtLogin = true; State.AutoStartProcessing = true; State.Language = UiText.Chinese; vm.Save();
         var preferenceReload = new StudioViewModel();
         Check(preferenceReload.State.LaunchAtLogin && preferenceReload.State.AutoStartProcessing, "Startup preferences persist separately from audio parameters");

@@ -1,4 +1,5 @@
 using Microsoft.Win32;
+using System.Threading;
 using System.Windows.Interop;
 using System.Windows.Automation;
 
@@ -44,18 +45,32 @@ public partial class MainWindow
         return 0;
     }
 
-    private void BackgroundPowerChanged(object sender, PowerModeChangedEventArgs args) => Dispatcher.BeginInvoke(() =>
+    private void BackgroundPowerChanged(object sender, PowerModeChangedEventArgs args)
     {
-        if (closed) return;
-        ResetPttForSafety();
-        if (args.Mode == PowerModes.Suspend) volumeLock?.Disable();
-        UpdateVolumeLockStatus();
-    });
-    private void BackgroundSessionChanged(object sender, SessionSwitchEventArgs args) => Dispatcher.BeginInvoke(() =>
+        if (args.Mode != PowerModes.StatusChange) Interlocked.Exchange(ref recoverySystemBlocked, 1);
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (closed) return;
+            ResetPttForSafety();
+            if (args.Mode != PowerModes.StatusChange)
+            {
+                CancelDeviceRecovery("power_changed");
+                if (engine.IsRunning && engine.SessionId == automaticRecoverySession) StopLocalAudio(false);
+            }
+            if (args.Mode == PowerModes.Suspend) volumeLock?.Disable();
+            UpdateVolumeLockStatus();
+        });
+    }
+    private void BackgroundSessionChanged(object sender, SessionSwitchEventArgs args)
     {
-        if (closed) return;
-        ResetPttForSafety();
-    });
+        Interlocked.Exchange(ref recoverySystemBlocked, 1);
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (closed) return;
+            ResetPttForSafety(); CancelDeviceRecovery("session_changed");
+            if (engine.IsRunning && engine.SessionId == automaticRecoverySession) StopLocalAudio(false);
+        });
+    }
 
     private void DisposeBackgroundControls()
     {
@@ -154,6 +169,7 @@ public partial class MainWindow
             CaptureFooter.Foreground = engine.TransmitEnabled ? Accent : Amber;
         }
         UpdateTrayMenu();
+        UpdateSignalPath();
     }
 
     private static string ShortcutName(ShortcutAction action) => action switch

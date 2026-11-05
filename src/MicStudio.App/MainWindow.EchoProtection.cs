@@ -67,6 +67,7 @@ public partial class MainWindow
             echoProtectionStatusText.Foreground = engine.FeedbackProtectionMuted || (engine.IsRunning && LocalMode && State.EchoCancellationEnabled && !status.IsActive) ? Amber : Muted;
         }
         if (diagnosticSummaryText != null) diagnosticSummaryText.Text = DiagnosticSummary();
+        UpdateSignalPath();
     }
 
     private string EchoDiagnosticDetails()

@@ -15,6 +15,8 @@ public partial class MainWindow
     private void BuildConnections()
     {
         Header("", "设备", "", false);
+        Add(SignalPathCard());
+        Add(DeviceRecoveryControls());
         Add(Buttons(B("刷新", () => { RefreshDevices(); apo = ApoInstallation.Detect(); ShowPage(4); }, true), B("Windows 声音设置", () => Open("ms-settings:sound"))));
         var send = outputs.Where(d => d.IsActive && d.IsCableSend).ToList();
         var receive = inputs.Where(d => d.IsActive && d.IsCableReceive).ToList();
@@ -61,17 +63,17 @@ public partial class MainWindow
         if (route.IsReady) routeControls.Children.Add(T(Loc.T("其他软件的输入选：", "In the other app, select input: ") + route.Receive!.Name, 14, Accent));
         var completeSends = send.Where(d => CableRouteResolver.Resolve(inputs, outputs, d.Id).Send?.Id == d.Id).ToList();
         if (completeSends.Count > 1)
-            routeControls.Children.Add(new Expander { Header = Loc.T("更换虚拟线路", "Change virtual cable"), Foreground = Ink, Content = DevicePicker(completeSends, State.CableOutputId, id => { if (engine.IsRunning) StopAudio(); State.CableOutputId = id; InvalidateDiscord(); SaveSoon(); ShowPage(4); }), Margin = new(0, 0, 0, 12) });
+            routeControls.Children.Add(new Expander { Header = Loc.T("更换虚拟线路", "Change virtual cable"), Foreground = Ink, Content = DevicePicker(completeSends, State.CableOutputId, id => { CancelDeviceRecovery("route_changed"); if (engine.IsRunning) StopAudio(); State.CableOutputId = id; InvalidateDiscord(); SaveSoon(); ShowPage(4); }), Margin = new(0, 0, 0, 12) });
         routeControls.Children.Add(Buttons(B("开始处理并发送", () => { if (!LocalMode) { ModePicker.SelectedIndex = 1; } StartAudio(true); }, true), B("停止", StopAudio), B("复制输入名称", () => { if (route.Receive != null) Clipboard.SetText(route.Receive.Name); else Notice("虚拟线路尚未就绪。"); })));
         Add(Card("用作其他软件的输入", "自动选择匹配的 CABLE 收发端；不会修改其他软件或 Windows 默认输入。", routeControls));
         Add(Card(Loc.T("外部监听保护", "External monitoring protection"), null, ExternalMonitoringControls()));
         var physical = outputs.Where(d => d.IsActive && !AudioDeviceService.IsVirtualCableEndpoint(d.Name)).ToList();
-        Add(Card("耳机监听", "仅选择并佩戴物理耳机后开启，监听额外衰减 12 dB；更改监听设置会停止当前音频。", DevicePicker(physical, State.PlaybackOutputId, id => { State.PlaybackOutputId = id; monitorId = id; if (engine.IsRunning) StopAudio(); SaveSoon(); }),
-            Toggle("已佩戴耳机", headphones, v => { headphones = v; if (!v) { monitor = false; if (engine.IsRunning) StopAudio(); } }),
+        Add(Card("耳机监听", "仅选择并佩戴物理耳机后开启，监听额外衰减 12 dB；更改监听设置会停止当前音频。", DevicePicker(physical, State.PlaybackOutputId, id => { CancelDeviceRecovery("monitor_changed"); State.PlaybackOutputId = id; monitorId = id; if (engine.IsRunning) StopAudio(); SaveSoon(); }),
+            Toggle("已佩戴耳机", headphones, v => { CancelDeviceRecovery("monitor_changed"); headphones = v; if (!v) { monitor = false; if (engine.IsRunning) StopAudio(); } }),
             Toggle("开启监听（下次启动生效）", monitor, v =>
             {
                 if (v && (!headphones || State.PlaybackOutputId is null)) { Notice("先选择耳机并确认佩戴。"); ShowPage(4); return; }
-                monitor = v; monitorId = State.PlaybackOutputId; if (engine.IsRunning) StopAudio();
+                CancelDeviceRecovery("monitor_changed"); monitor = v; monitorId = State.PlaybackOutputId; if (engine.IsRunning) StopAudio();
             })));
         var advanced = new StackPanel();
         Add(ProcessingModeControls());

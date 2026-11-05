@@ -15,11 +15,18 @@ public sealed class CaptureOptions
     public string? EchoReferenceOutputDeviceId { get; init; }
     // The send is configured before capture begins, including a PTT-closed start.
     public bool TransmitEnabled { get; init; } = true;
+    // Recovery may require the original input format; ordinary starts leave both null.
+    public int? ExpectedInputSampleRate { get; init; }
+    public int? ExpectedInputChannels { get; init; }
 }
 
 public sealed record AudioMeter(double InputPeakDb, double InputRmsDb, double OutputPeakDb, double OutputRmsDb,
     int SampleRate, int Channels, long ClippedSamples, TimeSpan Elapsed, int SessionId = 0);
-public sealed record AudioEngineStatus(bool IsRunning, string Message, string? ErrorCode = null, int SessionId = -1);
+public enum AudioStopReason { None, DeviceUnavailable, AudioError }
+public sealed record AudioEngineStatus(bool IsRunning, string Message, string? ErrorCode = null, int SessionId = -1)
+{
+    public AudioStopReason StopReason { get; init; }
+}
 public sealed record RecordingResult(string Path, TimeSpan Duration, string Reason, bool CapturedBeforeLocalDsp = false);
 public sealed record VolumeInfo(double Scalar, bool Muted, float MinDb, float MaxDb, float StepDb, double LevelDb);
 public sealed record FeedbackProtectionEvent(int SessionId, double FrequencyHz, double PeakDb);

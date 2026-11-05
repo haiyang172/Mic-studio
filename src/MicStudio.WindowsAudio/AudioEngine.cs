@@ -83,6 +83,7 @@ public sealed class AudioEngine : IDisposable
         if (string.IsNullOrWhiteSpace(options.InputDeviceId)) throw new ArgumentException("请选择明确的麦克风，程序不会自动改用其他设备。");
         if (options.MonitorOutputDeviceId != null && !options.MonitorConfirmedHeadphones)
             throw new InvalidOperationException("监听前请选择物理耳机，并确认已经佩戴耳机。");
+        ValidateRecoveryExpectation(options.ExpectedInputSampleRate, options.ExpectedInputChannels);
         lock (_lifecycle)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -97,6 +98,7 @@ public sealed class AudioEngine : IDisposable
                 _capture = new WasapiCapture(_inputDevice, false, 20) { ShareMode = AudioClientShareMode.Shared };
                 _format = _capture.WaveFormat;
                 ValidateFormat(_format);
+                ValidateRecoveryFormat(_format, options.ExpectedInputSampleRate, options.ExpectedInputChannels);
                 _dsp = options.ProcessLocally ? new DspProcessor(_format.SampleRate, _format.Channels, options.Settings) : null;
                 _feedbackGuard = options.FeedbackProtectionEnabled ? new FeedbackGuard(_format.SampleRate, _format.Channels) : null;
                 _transmitGate = new(_format.SampleRate, _format.Channels, options.TransmitEnabled, () => _cable?.ClearPending());
@@ -162,6 +164,25 @@ public sealed class AudioEngine : IDisposable
         if (!((format.Encoding == WaveFormatEncoding.IeeeFloat && format.BitsPerSample == 32)
             || (format.Encoding == WaveFormatEncoding.Pcm && format.BitsPerSample is 8 or 16 or 24 or 32)))
             throw new NotSupportedException($"此设备的采样格式不受支持：{format.Encoding} / {format.BitsPerSample} bit。");
+    }
+
+    private static void ValidateRecoveryExpectation(int? expectedRate, int? expectedChannels)
+    {
+        if (expectedRate.HasValue != expectedChannels.HasValue)
+            throw new ArgumentException(UiText.T("恢复采集需要同时指定原采样率和声道数。", "Capture recovery requires both the original sample rate and channel count."));
+        if (expectedRate is < 8000 or > 384000)
+            throw new ArgumentOutOfRangeException(nameof(expectedRate));
+        if (expectedChannels is < 1 or > 8)
+            throw new ArgumentOutOfRangeException(nameof(expectedChannels));
+    }
+
+    /// <summary>Pure format guard, checked before any capture or render stream is started.</summary>
+    internal static void ValidateRecoveryFormat(WaveFormat format, int? expectedRate, int? expectedChannels)
+    {
+        ArgumentNullException.ThrowIfNull(format);
+        ValidateRecoveryExpectation(expectedRate, expectedChannels);
+        if (expectedRate.HasValue && (format.SampleRate != expectedRate || format.Channels != expectedChannels))
+            throw new InvalidOperationException(UiText.T("麦克风采样格式已改变，自动恢复已取消。请确认设备后手动开始。", "The microphone format changed, so automatic recovery was canceled. Confirm the device and start manually."));
     }
 
     public void UpdateSettings(AudioSettings settings)
@@ -336,13 +357,13 @@ public sealed class AudioEngine : IDisposable
         if (exception != null) QueueFailure(exception, session, "输出设备故障，线路已停止");
     }
 
-    private void QueueFailure(Exception exception, int session, string message) => Task.Run(() =>
+    private void QueueFailure(Exception exception, int session, string message, AudioStopReason reason = AudioStopReason.AudioError) => Task.Run(() =>
     {
         lock (_lifecycle)
         {
             if (_disposed || session != _session || !IsRunning) return;
             StopCore();
-            RaiseStatus(new(false, $"{message}：{exception.Message}", $"0x{exception.HResult:X8}"));
+            RaiseStatus(new(false, $"{message}：{exception.Message}", $"0x{exception.HResult:X8}") { StopReason = reason });
         }
     });
 
@@ -369,7 +390,7 @@ public sealed class AudioEngine : IDisposable
             if (!inputs.Any(x => x.Id == options.InputDeviceId)
                 || (options.CableOutputDeviceId != null && !outputs.Any(x => x.Id == options.CableOutputDeviceId))
                 || (options.MonitorOutputDeviceId != null && !outputs.Any(x => x.Id == options.MonitorOutputDeviceId)))
-                QueueFailure(new IOException("所选设备断开，已停止全部本地音频；保留选择，不自动切换设备。"), session, "设备断开");
+                QueueFailure(new IOException("所选设备断开，已停止全部本地音频；保留选择，不自动切换设备。"), session, "设备断开", AudioStopReason.DeviceUnavailable);
         }
         catch (Exception ex) { QueueFailure(ex, session, "设备检测失败"); }
     });

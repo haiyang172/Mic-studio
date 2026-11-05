@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Text.Json;
+using System.Threading;
 using System.Windows.Automation;
 using System.Windows.Interop;
 using MicStudio.Apo;
@@ -48,7 +49,7 @@ public partial class MainWindow : Window
     private bool forceClose;
     private string? noticeRawText;
     private string applyState = "设置已就绪";
-    private static string ProductVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.6.1";
+    private static string ProductVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.7.0";
 
     private Brush Ink => (Brush)FindResource("Ink");
     private Brush Muted => (Brush)FindResource("Muted");
@@ -69,6 +70,7 @@ public partial class MainWindow : Window
         engine = new(devices);
         InitializeEchoProtectionNotifications();
         InitializeBackgroundControls();
+        InitializeDeviceRecovery();
         nativeLeaseTimer.Tick += (_, _) => RefreshNativeLease();
         driverManager.DownloadProgressChanged += progress => Dispatcher.BeginInvoke(() => { if (!closed && driverStatusText != null) driverStatusText.Text = progress.Percent is { } percent ? Loc.F("下载中 {0}%", "Downloading {0}%", percent) : Loc.F("已下载 {0} KB", "Downloaded {0} KB", progress.BytesReceived / 1024); });
         applied = Draft.Clone();
@@ -105,6 +107,8 @@ public partial class MainWindow : Window
         });
         engine.StatusChanged += (_, status) => Dispatcher.BeginInvoke(() =>
         {
+            if (closed || status.IsRunning != engine.IsRunning || status.SessionId != engine.SessionId) return;
+            HandleRecoveryEngineStatus(status);
             if (closed || status.IsRunning != engine.IsRunning || status.SessionId != engine.SessionId) return;
             if (!status.IsRunning && nativeWriter != null) { lastMeter = null; ClearMeters(); UpdateChrome(); return; }
             if (status.ErrorCode != null) Notice(Loc.Tr(status.Message) + "  " + status.ErrorCode);
@@ -210,6 +214,7 @@ public partial class MainWindow : Window
         if (closed) return;
         closed = true; saveTimer.Stop(); liveTimer.Stop(); calibrationTimer.Stop();
         DisposeBackgroundControls();
+        recoveryTimer.Stop(); deviceRecovery.Disarm("closed");
         DisposeTrayBranding();
         StopNativeProcessing();
         lifetime.Cancel();
@@ -229,7 +234,7 @@ public partial class MainWindow : Window
         }
         try
         {
-            StartAudio(LocalMode);
+            StartAudio(LocalMode, fromSignIn: true);
             if (!engine.IsRunning) tray?.ShowBalloonTip(4000, "Mic Studio", Loc.T("自动开始处理未启动；请在主窗口检查设备。", "Automatic processing did not start; check the device in the main window."), System.Windows.Forms.ToolTipIcon.Warning);
         }
         catch (Exception ex)
@@ -295,6 +300,7 @@ public partial class MainWindow : Window
             presetBadge.Text = Loc.T("当前预设：", "Preset: ") + CurrentPresetName();
         }
         UpdateTrayMenu();
+        UpdateSignalPath();
         var wasBuilding = building; building = true;
         try { foreach (var refresh in soundControlRefreshers.ToArray()) refresh(); }
         finally { building = wasBuilding; }
@@ -312,8 +318,11 @@ public partial class MainWindow : Window
     }
     private void DismissNotice(object sender, RoutedEventArgs e) => NoticeBar.Visibility = Visibility.Collapsed;
     private void Safe(Action action) { try { action(); } catch (Exception ex) { Notice(ex.Message); } }
-    private void StopAudio()
+    private void StopAudio() => StopLocalAudio(true);
+
+    private void StopLocalAudio(bool cancelRecovery)
     {
+        if (cancelRecovery) CancelDeviceRecovery();
         ResetPttForSafety(true);
         StopNativeProcessing();
         activeCableSendId = null;
@@ -322,7 +331,7 @@ public partial class MainWindow : Window
         engine.Stop(); engine.StopPlayback(); lastMeter = null; ClearMeters(); applyState = NativeMode ? Loc.T("自研 APO 参数连接已停止", "Native APO parameter control stopped") : LocalMode ? "设置已就绪" : "APO 需在设备页更新"; UpdateChrome(); UpdateLiveLabels();
     }
 
-    private void RefreshDevices(bool initial = false)
+    private void RefreshDevices(bool initial = false, bool evaluateRecovery = true)
     {
         refreshing = true;
         try
@@ -345,20 +354,30 @@ public partial class MainWindow : Window
             InputPicker.ItemsSource = list;
             InputPicker.SelectedItem = list.FirstOrDefault(x => x.Id == State.InputDeviceId);
             SelectCableRoute();
+            if (!initial && evaluateRecovery) ObserveDeviceRecovery();
         }
-        catch (Exception ex) { Notice(Loc.F("设备枚举失败：{0}（0x{1:X8}）。可在连接页检查 Windows 麦克风访问设置。管理员权限并非唯一原因。", "Device enumeration failed: {0} (0x{1:X8}). Check Windows microphone access on Devices. Administrator rights are not the only cause.", ex.Message, ex.HResult)); }
+        catch (Exception ex) { CancelDeviceRecovery("enumeration_failed"); Notice(Loc.F("设备枚举失败：{0}（0x{1:X8}）。可在连接页检查 Windows 麦克风访问设置。管理员权限并非唯一原因。", "Device enumeration failed: {0} (0x{1:X8}). Check Windows microphone access on Devices. Administrator rights are not the only cause.", ex.Message, ex.HResult)); }
         finally { refreshing = false; }
+        UpdateSignalPath();
+        if (!initial && evaluateRecovery) EvaluateDeviceRecovery();
     }
 
-    private void StartAudio(bool cable = false)
+    private void StartAudio(bool cable = false, RecoveryAttempt? recoveryAttempt = null, bool fromSignIn = false)
     {
+        if (recoveryAttempt == null)
+        {
+            CancelDeviceRecovery("manual_start");
+            Interlocked.Exchange(ref recoverySystemBlocked, 0);
+            automaticRecoverySession = -1;
+            Interlocked.Exchange(ref recoveryFeedbackBlockedSession, -1);
+        }
         Safe(() =>
         {
             if (NativeMode) { StartNativeProcessing(); return; }
             DisableOwnNativeBeforeLocalStart();
             // A driver reinstall can recreate endpoint IDs while the app is open.
             // Resolve the current pair before a user starts, not just at first launch.
-            if (cable) RefreshDevices();
+            if (cable) RefreshDevices(evaluateRecovery: false);
             if (SelectedInput is not { IsActive: true } input) throw new InvalidOperationException(Loc.T("请选择已连接的麦克风；不会自动改用其他设备。", "Select a connected microphone; another device is never substituted automatically."));
             var snapshot = Draft.CreateProcessingSnapshot(SampleRate, out var adjusted);
             if (LocalMode && apo.Found)
@@ -377,10 +396,14 @@ public partial class MainWindow : Window
             }
             liveTimer.Stop();
             ResetPttForSafety(true);
+            if (recoveryAttempt != null && !RecoveryAttemptCanStart(recoveryAttempt))
+                throw new InvalidOperationException(Loc.T("恢复目标已改变，请手动确认设备后开始。", "The recovery target changed. Confirm devices and start manually."));
             engine.Start(new CaptureOptions { InputDeviceId = input.Id, ProcessLocally = LocalMode, Settings = snapshot, CableOutputDeviceId = cable ? State.CableOutputId : null, MonitorOutputDeviceId = monitor ? monitorId : null, MonitorConfirmedHeadphones = headphones,
                 EchoCancellationEnabled = LocalMode && State.EchoCancellationEnabled, EchoReferenceOutputDeviceId = State.EchoReferenceOutputDeviceId,
-                TransmitEnabled = !State.TransmitMuted && !State.Shortcuts.PushToTalkEnabled });
+                TransmitEnabled = !State.TransmitMuted && !State.Shortcuts.PushToTalkEnabled,
+                ExpectedInputSampleRate = recoveryAttempt?.Route.SampleRate, ExpectedInputChannels = recoveryAttempt?.Route.Channels });
             activeCableSendId = cable ? State.CableOutputId : null;
+            if (recoveryAttempt == null && !fromSignIn) RememberDeviceRecovery(cable);
             applied = snapshot; applyState = LocalMode ? "实时调音" : "APO 音频待验证"; UpdateChrome();
             if (adjusted.Count > 0) Notice(Loc.T("已按当前设备采样率适配 EQ：", "EQ fitted to the current device sample rate: ") + Loc.Join(adjusted) + Loc.T("。原预设参数已保留。", ". The saved preset parameters were preserved."));
         });
