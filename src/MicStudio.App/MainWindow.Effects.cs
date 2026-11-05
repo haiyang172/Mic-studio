@@ -1,4 +1,5 @@
 using MicStudio.Core;
+using System.Windows.Automation;
 
 namespace MicStudio.App;
 
@@ -7,26 +8,25 @@ public partial class MainWindow
     private void BuildEffects()
     {
         Header("", "效果", "调整后实时生效，详细参数在高级功能中。");
-        if (!LocalMode) Add(Card("本地效果", "当前系统路线支持增益与 EQ；完整效果需要虚拟输入。", B("使用虚拟输入", () => ModePicker.SelectedIndex = 1, true)));
+        if (!LocalMode) PageContent.Children.Add(Card("本地效果", "当前系统路线支持增益与 EQ；完整效果需要虚拟输入。", B("使用虚拟输入", () => ModePicker.SelectedIndex = 1, true)));
         var enabled = LocalMode;
+        PageContent.Children.Add(BuildCreativeCard(enabled));
         Add(Card("降噪", "适合稳定底噪。",
             ButtonSwitch("降噪", Draft.Denoise.Enabled, v => vm.Change(s => s.Denoise.Enabled = v), enabled, readValue: () => Draft.Denoise.Enabled),
-            Parameter("强度", 0, 100, Draft.Denoise.Strength * 100, v => vm.Change(s => s.Denoise.Strength = v / 100, true), "%", 1, enabled, readValue: () => Draft.Denoise.Strength * 100),
-            Toggle("自动跟踪底噪", Draft.Denoise.AutoNoise, v => vm.Change(s => s.Denoise.AutoNoise = v), enabled),
-            Toggle("语音优先（保留轻声与尾音）", Draft.Denoise.VoicePriority, v => vm.Change(s => s.Denoise.VoicePriority = v), enabled)));
-        Add(Card("均衡器", "调整低频、清晰度与音色。", B("调整 EQ", () => ShowPage(1))));
+            Parameter("强度", 0, 100, Draft.Denoise.Strength * 100, v => vm.Change(s => s.Denoise.Strength = v / 100, true), "%", 1, enabled, readValue: () => Draft.Denoise.Strength * 100)));
         Add(Card("音量稳定", "压低过响的讲话。",
             ButtonSwitch("压缩", Draft.Compressor.Enabled, v => vm.Change(s => s.Compressor.Enabled = v), enabled, readValue: () => Draft.Compressor.Enabled),
             Parameter("强度", 0, 100, (Draft.Compressor.Ratio - 1) / 19 * 100, v => vm.Change(s => s.Compressor.Ratio = 1 + v / 100 * 19, true), "%", 1, enabled, readValue: () => (Draft.Compressor.Ratio - 1) / 19 * 100)));
         Add(Card("停顿降噪", "压低停顿中的声音；不会消除回声。",
             ButtonSwitch("柔和噪声门", Draft.Gate.Enabled, v => vm.Change(s => s.Gate.Enabled = v), enabled, readValue: () => Draft.Gate.Enabled),
             Parameter("强度", 0, 100, Draft.Gate.RangeDb / 60 * 100, v => vm.Change(s => s.Gate.RangeDb = v / 100 * 60, true), "%", 1, enabled, readValue: () => Draft.Gate.RangeDb / 60 * 100)));
-        Add(BuildCreativeCard(enabled));
         Add(Card("输出保护", "控制处理后的采样峰值。",
             ButtonSwitch("限幅保护", Draft.Limiter.Enabled, v => vm.Change(s => s.Limiter.Enabled = v), enabled, readValue: () => Draft.Limiter.Enabled),
             Parameter("输出上限", -12, -.1, Draft.Limiter.CeilingDb, v => vm.Change(s => s.Limiter.CeilingDb = v, true), "dBFS", .1, enabled)));
         var details = new StackPanel();
         details.Children.Add(Card("降噪", "经典频谱衰减，参考电平为手动设置。",
+            Toggle("自动跟踪底噪", Draft.Denoise.AutoNoise, v => vm.Change(s => s.Denoise.AutoNoise = v), enabled),
+            Toggle("语音优先（保留轻声与尾音）", Draft.Denoise.VoicePriority, v => vm.Change(s => s.Denoise.VoicePriority = v), enabled),
             Parameter("底噪参考", -90, -20, Draft.Denoise.NoiseFloorDb, v => vm.Change(s => s.Denoise.NoiseFloorDb = v, true), "dBFS", .5, enabled)));
         details.Children.Add(Card("压缩器", "补偿增益过高会增加底噪。",
             Parameter("门限", -60, 0, Draft.Compressor.ThresholdDb, v => vm.Change(s => s.Compressor.ThresholdDb = v, true), "dB", .5, enabled),
@@ -50,28 +50,36 @@ public partial class MainWindow
     private Border BuildCreativeCard(bool enabled)
     {
         var active = CreativeEnabled(Draft.Creative);
-        var themes = new (string Id, string Name)[]
+        var themes = new (string Id, string Glyph, string Caption)[]
         {
-            ("warm", Loc.CreativeTheme("warm")), ("crunch", Loc.CreativeTheme("crunch")), ("robot", Loc.CreativeTheme("robot")),
-            ("echo", Loc.CreativeTheme("echo")), ("space", Loc.CreativeTheme("space")), ("phone", Loc.CreativeTheme("phone")),
-            ("helium", Loc.CreativeTheme("helium")), ("loli", Loc.CreativeTheme("loli")), ("monster", Loc.CreativeTheme("monster")),
-            ("custom", Loc.CreativeTheme("custom"))
+            ("warm", "\uE706", Loc.T("柔和饱满", "Soft warmth")),
+            ("crunch", "\uE7F4", Loc.T("夸张失真", "Distortion")),
+            ("robot", "\uE99A", Loc.T("机械音色", "Mechanical")),
+            ("echo", "\uE72C", Loc.T("重复回声", "Repeating echo")),
+            ("space", "\uE774", Loc.T("空间混响", "Room reverb")),
+            ("phone", "\uE717", Loc.T("窄频人声", "Narrow-band")),
+            ("helium", "\uE70E", Loc.T("明亮高音", "Bright pitch")),
+            ("loli", "\uE8D4", Loc.T("轻盈高音", "Light pitch")),
+            ("monster", "\uE70D", Loc.T("低沉音高", "Deep pitch")),
+            ("custom", "\uE713", Loc.T("高级组合", "Your effect mix"))
         };
-        var picker = new ComboBox { MinWidth = 150, Margin = new Thickness(0, 4, 0, 12), IsEnabled = enabled };
-        foreach (var theme in themes) picker.Items.Add(new ComboBoxItem { Content = theme.Name, Tag = theme.Id });
-        picker.SelectedIndex = Math.Max(0, Array.FindIndex(themes, t => t.Id == State.CreativeThemeId));
-        RegisterSoundControl(picker, () => picker.SelectedIndex = Math.Max(0, Array.FindIndex(themes, t => t.Id == State.CreativeThemeId)));
-        picker.SelectionChanged += (_, _) =>
+        var choices = new List<UIElement>();
+        foreach (var theme in themes)
         {
-            if (building || picker.SelectedItem is not ComboBoxItem item || item.Tag is not string id) return;
-            State.CreativeThemeId = id;
-            if (id != "custom") vm.Change(s => SetCreativeTheme(s.Creative, id, .5, CreativeEnabled(s.Creative)));
-            else { UpdateChrome(); SaveSoon(); }
-        };
+            var id = theme.Id;
+            var choice = ThemeChoice(Loc.CreativeTheme(id), theme.Glyph, theme.Caption, () =>
+            {
+                if (building || State.CreativeThemeId == id) return;
+                State.CreativeThemeId = id;
+                if (id != "custom") vm.Change(s => SetCreativeTheme(s.Creative, id, .5, CreativeEnabled(s.Creative)));
+                else { UpdateChrome(); SaveSoon(); }
+            }, () => State.CreativeThemeId == id, enabled);
+            AutomationProperties.SetAutomationId(choice, "creative-theme-" + id);
+            choices.Add(choice);
+        }
         var amount = Parameter("主题调节", 0, 100, CreativeAmount(Draft.Creative, State.CreativeThemeId) * 100, value => vm.Change(s => SetCreativeTheme(s.Creative, State.CreativeThemeId, value / 100, CreativeEnabled(s.Creative)), true), "%", 1, enabled && State.CreativeThemeId != "custom", readValue: () => CreativeAmount(Draft.Creative, State.CreativeThemeId) * 100);
         RegisterSoundControl(amount, () => amount.IsEnabled = enabled && State.CreativeThemeId != "custom");
-        return Card("创意声音", "主题使用现有失真、环形调制、回声和混响。",
-            picker,
+        return Card("创意声音", null,
             ButtonSwitch("创意声音", active, value =>
             {
                 vm.Change(s =>
@@ -80,7 +88,7 @@ public partial class MainWindow
                     else if (State.CreativeThemeId == "custom") EnableCreative(s.Creative, State.CreativeEnabledMask is > 0 and <= 63 ? State.CreativeEnabledMask : 1);
                     else SetCreativeTheme(s.Creative, State.CreativeThemeId, CreativeAmount(s.Creative, State.CreativeThemeId), true);
                 });
-            }, enabled, readValue: () => CreativeEnabled(Draft.Creative)), amount);
+            }, enabled, readValue: () => CreativeEnabled(Draft.Creative)), ChoiceGrid(choices), amount);
     }
 
     private Border BuildCreativeDetails(bool enabled)

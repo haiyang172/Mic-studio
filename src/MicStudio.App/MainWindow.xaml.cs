@@ -48,7 +48,7 @@ public partial class MainWindow : Window
     private bool forceClose;
     private string? noticeRawText;
     private string applyState = "设置已就绪";
-    private static string ProductVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.6.0";
+    private static string ProductVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.6.1";
 
     private Brush Ink => (Brush)FindResource("Ink");
     private Brush Muted => (Brush)FindResource("Muted");
@@ -443,7 +443,7 @@ public partial class MainWindow : Window
     {
         var panel = new StackPanel(); panel.Children.Add(T(Loc.Tr(title), 15, weight: FontWeights.SemiBold));
         foreach (var child in children) panel.Children.Add(child);
-        return new Border { Background = (Brush)FindResource("Panel"), BorderBrush = (Brush)FindResource("Line"), BorderThickness = new(1), CornerRadius = new(9), Padding = new(18), Margin = new(0, 0, 0, 12), Child = panel, ToolTip = description is null ? null : Loc.Tr(description) };
+        return new Border { Background = (Brush)FindResource("Panel"), BorderBrush = (Brush)FindResource("Line"), BorderThickness = new(1), CornerRadius = new(13), Padding = new(20), Margin = new(0, 0, 0, 14), Child = panel, ToolTip = description is null ? null : Loc.Tr(description) };
     }
     private WrapPanel Buttons(params WpfButton[] buttons) { var p = new WrapPanel(); foreach (var b in buttons) p.Children.Add(b); return p; }
     private WpfButton ButtonSwitch(string label, bool value, Action<bool> changed, bool enabled = true, Func<bool>? readValue = null)
@@ -452,7 +452,7 @@ public partial class MainWindow : Window
         var labelText = Loc.Tr(label);
         var button = B(labelText + (current ? Loc.T("：开", "：On") : Loc.T("：关", "：Off")), () => { });
         button.IsEnabled = enabled;
-        void Update() { current = readValue?.Invoke() ?? current; button.Content = labelText + (current ? Loc.T("：开", "：On") : Loc.T("：关", "：Off")); button.Foreground = current ? Accent : Muted; AutomationProperties.SetName(button, (string)button.Content); }
+        void Update() { current = readValue?.Invoke() ?? current; button.Content = labelText + (current ? Loc.T("：开", "：On") : Loc.T("：关", "：Off")); button.Foreground = current ? Accent : Muted; button.Background = (Brush)FindResource(current ? "AccentSoft" : "PanelHover"); button.BorderBrush = (Brush)FindResource(current ? "Accent" : "Line"); AutomationProperties.SetName(button, (string)button.Content); }
         button.Click += (_, _) => Safe(() => { if (building) return; var next = !(readValue?.Invoke() ?? current); changed(next); current = next; Update(); });
         if (readValue != null) RegisterSoundControl(button, Update);
         Update(); return button;
@@ -508,6 +508,7 @@ public partial class MainWindow : Window
     private void ShowTextDialog(string title, string text, string? actionText = null, Action? action = null)
     {
         var dialog = new Window { Owner = this, Title = "Mic Studio · " + Loc.Tr(title), Width = Math.Min(780, SystemParameters.WorkArea.Width - 40), Height = Math.Min(620, SystemParameters.WorkArea.Height - 40), WindowStartupLocation = WindowStartupLocation.CenterOwner, MinWidth = 420, MinHeight = 300 };
+        ApplyDialogTheme(dialog);
         var dock = new DockPanel { Margin = new(22) }; var row = new WrapPanel { Margin = new(0, 15, 0, 0) }; DockPanel.SetDock(row, Dock.Bottom);
         if (actionText != null) row.Children.Add(B(actionText, () => { dialog.Close(); action?.Invoke(); }, true));
         row.Children.Add(B("关闭", dialog.Close)); dock.Children.Add(row);
@@ -519,6 +520,7 @@ public partial class MainWindow : Window
         string? result = null;
         var dialogTitle = Loc.Tr(title);
         var d = new Window { Owner = this, Title = dialogTitle, Width = 430, SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize };
+        ApplyDialogTheme(d);
         var p = new StackPanel { Margin = new(24) }; p.Children.Add(T(dialogTitle, 18)); var input = new TextBox { Text = initial, MaxLength = 60, Margin = new(0, 10, 0, 18) }; p.Children.Add(input);
         p.Children.Add(Buttons(B("保存", () => { if (!string.IsNullOrWhiteSpace(input.Text)) { result = input.Text.Trim(); d.Close(); } }, true), B("取消", d.Close)));
         d.Content = p; d.Loaded += (_, _) => { input.Focus(); input.SelectAll(); }; d.ShowDialog(); return result;
@@ -575,11 +577,13 @@ public partial class MainWindow : Window
     {
         if (State.Theme == "light")
         {
+            Resources["AccentSoft"] = new SolidColorBrush(Color.FromRgb(219, 240, 229));
+            Resources["MeterTrack"] = new SolidColorBrush(Color.FromRgb(213, 225, 219));
             Resources["Bg"] = new SolidColorBrush(Color.FromRgb(243, 246, 245)); Resources["Panel"] = Brushes.White; Resources["Ink"] = new SolidColorBrush(Color.FromRgb(26, 45, 39)); Resources["Muted"] = new SolidColorBrush(Color.FromRgb(91, 111, 105));
             Resources["PanelHover"] = new SolidColorBrush(Color.FromRgb(230, 238, 233)); Resources["Line"] = new SolidColorBrush(Color.FromRgb(201, 214, 207)); Resources["Accent"] = new SolidColorBrush(Color.FromRgb(24, 116, 85)); Resources["Amber"] = new SolidColorBrush(Color.FromRgb(143, 89, 27)); Resources["PrimaryInk"] = Brushes.White;
             Resources["SidebarBg"] = new SolidColorBrush(Color.FromRgb(226, 235, 229)); Resources["SidebarInk"] = new SolidColorBrush(Color.FromRgb(49, 68, 59)); Resources["NavSelectedBg"] = new SolidColorBrush(Color.FromRgb(200, 230, 214)); Resources["NoticeBg"] = new SolidColorBrush(Color.FromRgb(223, 240, 230));
         }
-        else foreach (var key in new[] { "Bg", "Panel", "Ink", "Muted", "PanelHover", "Line", "Accent", "Amber", "PrimaryInk", "SidebarBg", "SidebarInk", "NavSelectedBg", "NoticeBg" }) Resources.Remove(key);
+        else foreach (var key in new[] { "Bg", "Panel", "Ink", "Muted", "PanelHover", "Line", "Accent", "Amber", "PrimaryInk", "SidebarBg", "SidebarInk", "NavSelectedBg", "NoticeBg", "AccentSoft", "MeterTrack" }) Resources.Remove(key);
         Background = (Brush)FindResource("Bg"); Foreground = Ink;
         CaptureFooter.Foreground = engine.IsRunning ? Accent : (Brush)FindResource("SidebarInk");
     }

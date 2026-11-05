@@ -231,7 +231,7 @@ public partial class MainWindow
         shortcuts?.Suspend();
         ShortcutBinding? chosen = null;
         var dialog = new Window { Owner = this, Title = ShortcutName(action), Width = 460, SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize };
-        foreach (var resource in new[] { "Bg", "Panel", "Ink", "Muted", "PanelHover", "Line", "Accent", "Amber", "PrimaryInk" })
+        foreach (var resource in new[] { "Bg", "Panel", "Ink", "Muted", "PanelHover", "Line", "Accent", "Amber", "PrimaryInk", "AccentSoft" })
             dialog.Resources[resource] = FindResource(resource);
         var panel = new StackPanel { Margin = new(22) };
         panel.Children.Add(T(Loc.T("按下要使用的组合键", "Press the shortcut you want to use"), 16));

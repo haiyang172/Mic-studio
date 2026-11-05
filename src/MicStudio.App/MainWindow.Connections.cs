@@ -74,9 +74,10 @@ public partial class MainWindow
                 monitor = v; monitorId = State.PlaybackOutputId; if (engine.IsRunning) StopAudio();
             })));
         var advanced = new StackPanel();
+        Add(ProcessingModeControls());
         Add(new Expander { Header = Loc.T("自研 APO（开发预览）", "Native APO (development preview)"), Foreground = Ink, Content = NativeApoControls(), Margin = new(0, 8, 0, 12) });
         advanced.Children.Add(T(apo.Found ? Loc.F("Equalizer APO {0}", "Equalizer APO {0}", apo.Version) : Loc.T("Equalizer APO 未检测到", "Equalizer APO not found"), 14, apo.Found ? Accent : Amber));
-        advanced.Children.Add(Buttons(B("获取 APO", () => Open("https://sourceforge.net/projects/equalizerapo/")), B("设备绑定", () => { if (apo.ConfiguratorPath is null) { Notice("未检测到 APO 设备配置工具。"); return; } Open(apo.ConfiguratorPath); }), B("官方编辑器", () => { if (apo.EditorPath is null) { Notice("未检测到 APO 编辑器。"); return; } Open(apo.EditorPath); }), B("预览 / 应用 EQ", () => { if (LocalMode) { Notice("先在顶部选择系统输入 · APO。"); return; } ApplyDraft(); }), B("移除自有挂接", () => { StopAudio(); var result = new ApoConfigService(apo).RemoveOwnedConfiguration(); Notice(result.Message); InvalidateDiscord(); })));
+        advanced.Children.Add(Buttons(B("获取 APO", () => Open("https://sourceforge.net/projects/equalizerapo/")), B("设备绑定", () => { if (apo.ConfiguratorPath is null) { Notice("未检测到 APO 设备配置工具。"); return; } Open(apo.ConfiguratorPath); }), B("官方编辑器", () => { if (apo.EditorPath is null) { Notice("未检测到 APO 编辑器。"); return; } Open(apo.EditorPath); }), B("预览 / 应用 EQ", () => { if (LocalMode) { Notice(Loc.T("请在高级连接中选择系统输入 · APO。", "Choose System input · APO under Advanced connection.")); return; } ApplyDraft(); }), B("移除自有挂接", () => { StopAudio(); var result = new ApoConfigService(apo).RemoveOwnedConfiguration(); Notice(result.Message); InvalidateDiscord(); })));
         advanced.Children.Add(T("APO 路线只应用增益与 EQ；需要绑定到目标录音端点。关闭软件后系统效果仍可能存在。", 12, Muted));
         Add(new Expander { Header = Loc.T("系统 APO（高级）", "System APO (advanced)"), Foreground = Ink, Content = advanced, Margin = new(0, 8, 0, 12) });
     }

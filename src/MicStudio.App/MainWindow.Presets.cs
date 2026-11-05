@@ -1,4 +1,5 @@
 using MicStudio.Core;
+using System.Windows.Automation;
 
 namespace MicStudio.App;
 
@@ -20,39 +21,68 @@ public partial class MainWindow
     }
     private void BuildPresets()
     {
-        Header("YOUR SOUND LIBRARY / 04", "把喜欢的声音留下来。", "内置预设可复制成个人版本。导入导出只包含音频参数，不包含设备 ID、插件路径或录音。");
-        Add(Buttons(B("新建 · 从当前声音另存", SavePreset, true), B("导入 JSON 预设", () =>
+        Header("", "预设", "");
+        Add(Buttons(B(Loc.T("保存当前声音", "Save current sound"), SavePreset, true), B(Loc.T("导入预设", "Import preset"), () =>
         {
             if (State.Presets.Count >= 200) { Notice("个人预设已达 200 个。"); return; }
             var d = new Microsoft.Win32.OpenFileDialog { Filter = Loc.T("Mic Studio 预设|*.json", "Mic Studio preset|*.json"), Title = Loc.T("导入预设 · 最大 256 KB", "Import preset · up to 256 KB") };
             if (d.ShowDialog(this) != true) return;
             var p = PresetStore.ImportFile(d.FileName); State.Presets.Add(p); SaveSoon(); ShowPage(3);
             Notice("预设已导入，选择后使用。");
-        }), B("导出当前草稿", () => ExportPreset(new SoundPreset { Name = Loc.T("我的声音", "My sound"), Description = Loc.T("Mic Studio 声音设置", "Mic Studio sound settings"), Settings = Draft.Clone() }))));
-        Add(Buttons(B(favoritesOnly ? "★  已收藏" : "全部预设", () => { favoritesOnly = !favoritesOnly; ShowPage(3); })));
+        }), B(favoritesOnly ? Loc.T("★  只看收藏", "★  Favorites only") : Loc.T("全部预设", "All presets"), () => { favoritesOnly = !favoritesOnly; ShowPage(3); })));
         var presets = AllPresets().Where(p => !favoritesOnly || p.IsFavorite).OrderByDescending(p => p.IsFavorite).ToList();
         if (presets.Count == 0) Add(T("还没有收藏。可先将内置声音复制为个人预设，再收藏。", 12, Muted));
-        foreach (var item in presets)
+        foreach (var builtIn in new[] { true, false })
         {
-            var p = item;
-            var row = Buttons(B("使用", () => LoadPreset(p), true), B("复制", () =>
+            var group = presets.Where(p => p.IsBuiltIn == builtIn).ToList();
+            if (group.Count == 0) continue;
+            Add(T(builtIn ? Loc.T("内置声音", "Built-in sounds") : Loc.T("我的声音", "My sounds"), 14, Ink, FontWeights.SemiBold, new(0, 12, 0, 10)));
+            var choices = new List<UIElement>();
+            foreach (var preset in group)
+            {
+                var p = preset;
+                var glyph = p.IsFavorite ? "\uE734" : p.Id switch { "flat" => "\uE9D9", "natural" => "\uE720", "clear" => "\uE8D4", "warm" => "\uE706", _ => "\uE8A5" };
+                var caption = p.IsBuiltIn ? p.Id switch
+                {
+                    "flat" => Loc.T("平直音色 · EQ 关闭", "Neutral tone · EQ off"),
+                    "natural" => Loc.T("自然人声", "Natural speech"),
+                    "clear" => Loc.T("清楚明亮", "Clear and bright"),
+                    "warm" => Loc.T("温暖厚实", "Warm and full"),
+                    _ => Loc.PresetDescription(p)
+                } : Loc.PresetDescription(p);
+                var choice = ThemeChoice(Loc.PresetName(p), glyph, caption, () => LoadPreset(p),
+                    () => State.SelectedPresetId == p.Id && SettingsJson(p.Settings) == vm.DraftJson);
+                AutomationProperties.SetAutomationId(choice, "sound-preset-" + p.Id);
+                choice.ToolTip = Loc.PresetName(p) + "\n" + Loc.PresetDescription(p);
+                choices.Add(choice);
+            }
+            Add(ChoiceGrid(choices, 180));
+        }
+        var management = new StackPanel();
+        var selected = AllPresets().FirstOrDefault(p => p.Id == State.SelectedPresetId);
+        if (selected is { } current)
+        {
+            management.Children.Add(T(Loc.PresetName(current), 14, Ink, FontWeights.SemiBold, new(0, 10, 0, 8)));
+            management.Children.Add(T(Loc.PresetDescription(current), 12, Muted, margin: new(0, 0, 0, 10)));
+            var actions = Buttons(B(Loc.T("复制为个人预设", "Make a personal copy"), () =>
             {
                 if (State.Presets.Count >= 200) { Notice("个人预设已达 200 个。"); return; }
-                var copy = p.Clone(); copy.Id = Guid.NewGuid().ToString("N"); copy.IsBuiltIn = false; copy.Name += Loc.T(" · 副本", " · copy"); State.Presets.Add(copy); SaveSoon(); ShowPage(3);
-            }), B("导出", () => ExportPreset(p)));
-            if (!p.IsBuiltIn)
+                var copy = current.Clone(); copy.Id = Guid.NewGuid().ToString("N"); copy.IsBuiltIn = false; copy.Name += Loc.T(" · 副本", " · copy"); State.Presets.Add(copy); SaveSoon(); ShowPage(3);
+            }), B(Loc.T("导出预设", "Export preset"), () => ExportPreset(current)));
+            if (!current.IsBuiltIn)
             {
-                row.Children.Add(B("重命名", () => { var name = Prompt("重命名预设", p.IsBuiltIn ? Loc.PresetName(p) : p.Name); if (name is null) return; p.Name = name; SaveSoon(); ShowPage(3); }));
-                row.Children.Add(B(p.IsFavorite ? "取消收藏" : "收藏", () => { p.IsFavorite = !p.IsFavorite; SaveSoon(); ShowPage(3); }));
-                row.Children.Add(B("删除", () =>
+                actions.Children.Add(B("重命名", () => { var name = Prompt("重命名预设", current.Name); if (name is null) return; current.Name = name; SaveSoon(); ShowPage(3); }));
+                actions.Children.Add(B(current.IsFavorite ? "取消收藏" : "收藏", () => { current.IsFavorite = !current.IsFavorite; SaveSoon(); ShowPage(3); }));
+                actions.Children.Add(B("删除", () =>
                 {
-                    if (MessageBox.Show(this, Loc.F("删除个人预设“{0}”？当前草稿会保留。", "Delete the personal preset “{0}”? The current draft is kept.", p.Name), "Mic Studio", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
-                    State.Presets.Remove(p); SaveSoon(); ShowPage(3);
+                    if (MessageBox.Show(this, Loc.F("删除个人预设“{0}”？当前草稿会保留。", "Delete the personal preset “{0}”? The current draft is kept.", current.Name), "Mic Studio", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+                    State.Presets.Remove(current); SaveSoon(); ShowPage(3);
                 }));
             }
-            var tag = p.IsBuiltIn ? Loc.T("内置", "Built-in") : Loc.T("个人", "Personal");
-            Add(Card((p.IsFavorite ? "★  " : "") + Loc.PresetName(p) + "  /  " + tag, Loc.PresetDescription(p), row));
+            management.Children.Add(actions);
         }
+        management.Children.Add(B("导出当前草稿", () => ExportPreset(new SoundPreset { Name = Loc.T("我的声音", "My sound"), Description = Loc.T("Mic Studio 声音设置", "Mic Studio sound settings"), Settings = Draft.Clone() })));
+        Add(new Expander { Header = Loc.T("管理与导出", "Manage and export"), Foreground = Ink, Content = management, Margin = new(0, 16, 0, 12) });
     }
     private void ExportPreset(SoundPreset preset)
     {

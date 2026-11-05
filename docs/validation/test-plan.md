@@ -1,6 +1,6 @@
 # Mic Studio verification and acceptance
 
-Date: 2026-11-04 (Australia/Sydney). This file defines the acceptance procedure. An unchecked item is pending, not passed. The app's status indicators and a saved configuration are not substitutes for the manual audio checks below.
+Date: 2026-11-05 (Australia/Sydney). This file defines the acceptance procedure. An unchecked item is pending, not passed. The app's status indicators and a saved configuration are not substitutes for the manual audio checks below.
 
 ## Automated checks
 
@@ -11,6 +11,7 @@ Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test.ps1` from 
 - [x] 0.3.0 run passed Core 38, APO 20, WindowsAudio 39, Components 24 and Setup 40; WPF checks passed 43 control events with 27 Chinese and 27 English layouts and zero untranslated visible English text. Results are recorded in `p2-background.md`.
 - [x] 0.4.0 run passed Core 40, APO 20, WindowsAudio 39, Components 24 and Setup 40; WPF checks passed 47 control events with 27 Chinese and 27 English layouts and zero untranslated visible English text. Results are recorded in `p3-p5.md`.
 - [x] 0.6.0 run passed Core 40, APO 20, WindowsAudio 84, Shortcuts 14, Components 24, NativeApo 26 and Setup 40. WPF checks passed 80 control events, 30 Chinese and 30 English layouts, zero untranslated visible English text. New shortcut and volume adapters were simulated; no real hotkeys or endpoint writes occurred. See `p6-background-controls.md`.
+- [x] 0.6.1 retained those synthetic checks and passed 90 WPF control checks, 39 Chinese and 39 English layouts with zero overflow or untranslated visible English labels. Expanded main/preset/connection controls and long personal names are included. See `p5-simple-controls.md`.
 - [x] Release WPF build completed with restored locked dependencies, zero compiler warnings and zero errors on this machine.
 - [x] Self-contained `win-x64` EXE started on this Windows 11 x64 machine and loaded the bundled hostfxr/coreclr/WPF libraries; no developer SDK is used by the published process. A separate fresh-machine run remains pending.
 - [x] Published ZIP/setup checksums match `dist/SHA256SUMS.txt`; package excludes SDK, user audio, settings, logs and credentials. Standard VB-CABLE bytes match the pinned original SHA-256, retain attribution/donation links, and exclude A+B/C+D.

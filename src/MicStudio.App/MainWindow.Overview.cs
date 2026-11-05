@@ -12,34 +12,51 @@ public partial class MainWindow
     {
         Header("", "麦克风", "");
         var volume = new StackPanel();
+        UIElement? systemMute = null;
         if (SelectedInput is { IsActive: true } input)
         {
             try
             {
                 var systemVolume = devices.GetInputVolume(input.Id);
                 volume.Children.Add(Parameter("系统音量", 0, 100, systemVolume.Scalar * 100, v => { SetSelectedInputVolume(input.Id, v / 100); CancelCalibration(); InvalidateDiscord(); }, "%", 1));
-                volume.Children.Add(ButtonSwitch("麦克风静音", systemVolume.Muted, value => { devices.SetInputMute(input.Id, value); CancelCalibration(); InvalidateDiscord(); }));
+                systemMute = ButtonSwitch("麦克风静音", systemVolume.Muted, value => { devices.SetInputMute(input.Id, value); CancelCalibration(); InvalidateDiscord(); });
             }
             catch (Exception ex) { volume.Children.Add(T("系统音量不可调", 12, Amber)); volume.ToolTip = ex.Message; }
         }
         else volume.Children.Add(T("麦克风未连接", 14, Amber));
-        volume.Children.Add(Parameter("输入增益", -24, 30, Draft.InputGainDb, v => vm.Change(s => s.InputGainDb = v, true), "dB"));
+        volume.Children.Add(Parameter("输入增益", -24, 30, Draft.InputGainDb, v => vm.Change(s => s.InputGainDb = v, true), "dB", readValue: () => Draft.InputGainDb));
         playerButton = B("开始处理", () => { if (ProcessingActive) StopAudio(); else StartAudio(LocalMode); }, true);
-        volume.Children.Add(Buttons(playerButton));
+        playerButton.HorizontalAlignment = HorizontalAlignment.Stretch;
+        playerButton.HorizontalContentAlignment = HorizontalAlignment.Center;
+        playerButton.FontSize = 15;
+        playerButton.MinHeight = 46;
+        playerButton.Margin = new(0, 5, 0, 10);
+        volume.Children.Add(playerButton);
         if (LocalMode) volume.Children.Add(TransmitControls());
-        AdaptiveCards(Card("输入", "系统音量和静音会立即作用于所选麦克风，包括其他应用。", volume), Card("电平", "开始后显示真实峰值；采集输入可能包含 Windows 系统效果。", MeterBlock(false), LocalMode ? MeterBlock(true) : T("APO 音频生效待验证", 12, Amber)));
-        var quick = new WrapPanel();
-        foreach (var button in new[] { B("均衡器", () => ShowPage(1)), B("效果", () => ShowPage(2)), B("另存预设", SavePreset), B("连接", () => ShowPage(4)) }) quick.Children.Add(button);
         var route = CableRouteResolver.Resolve(inputs, outputs, State.CableOutputId);
         var routeText = LocalMode
             ? route.IsReady
                 ? Loc.T("其他软件的输入选：", "In the other app, select input: ") + route.Receive!.Name
                 : Loc.T("虚拟线路未就绪，可在设备页检查驱动", "Virtual cable is not ready; check the driver on Devices")
             : NativeMode ? Loc.T("自研 APO 预览：仅增益、EQ、限幅；系统音频待验证", "Native APO preview: gain, EQ and limiter only; system audio unverified") : Loc.T("系统 APO 需在设备页更新配置", "Update the system APO configuration on Devices");
-        var tone = Card("音色", null, BuildPresetSelector(false), quick, T(routeText, 13, route.IsReady || !LocalMode ? Accent : Amber));
-        Add(tone);
-        Add(new Expander { Header = Loc.T("增益校准", "Gain calibration"), Foreground = Ink, Content = CalibrationControls(), Margin = new(0, 4, 0, 6) });
-        Add(new Expander { Header = Loc.T("录音与比较", "Recording and comparison"), Foreground = Ink, Content = RecordingControls(), Margin = new(0, 6, 0, 6) });
+        var sound = new StackPanel();
+        sound.Children.Add(BuildPresetSelector(false));
+        sound.Children.Add(MeterBlock(false));
+        sound.Children.Add(LocalMode ? MeterBlock(true) : T("APO 音频生效待验证", 12, Amber));
+        sound.Children.Add(T(routeText, 12, route.IsReady || !LocalMode ? Muted : Amber));
+        if (LocalMode && !route.IsReady) sound.Children.Add(B(Loc.T("检查连接", "Check connection"), () => ShowPage(4)));
+        AdaptiveCards(
+            Card("输入", "系统音量和静音会立即作用于所选麦克风，包括其他应用。", volume),
+            Card("音色", "开始后显示真实峰值；采集输入可能包含 Windows 系统效果。", sound));
+
+        var advanced = new StackPanel();
+        if (systemMute != null)
+            advanced.Children.Add(Card(Loc.T("系统麦克风", "System microphone"), null,
+                systemMute, T(Loc.T("直接控制所选 Windows 麦克风，影响其他应用。发送静音只控制本软件的虚拟线路。", "Controls the selected Windows microphone for all apps. Mute send controls only this app's virtual cable."), 12, Muted)));
+        advanced.Children.Add(Card(Loc.T("增益校准", "Gain calibration"), null, CalibrationControls()));
+        advanced.Children.Add(Card(Loc.T("录音与比较", "Recording and comparison"), null, RecordingControls()));
+        advanced.Children.Add(Buttons(B("另存预设", SavePreset)));
+        Add(new Expander { Header = Loc.T("高级功能", "Advanced"), Foreground = Ink, Content = advanced, Margin = new(0, 4, 0, 8) });
     }
 
     private void AdaptiveCards(params Border[] cards)
@@ -52,11 +69,14 @@ public partial class MainWindow
 
     private StackPanel MeterBlock(bool output)
     {
-        var p = new StackPanel { Margin = new(0, 4, 0, 10) };
-        p.Children.Add(T(output ? "处理后" : "采集输入", 12, Muted));
-        var value = T("—", 27, Accent, FontWeights.Light);
-        var bar = new ProgressBar { Minimum = -60, Maximum = 0, Value = -60, Height = 6, Foreground = Accent, Background = new SolidColorBrush(Color.FromRgb(46, 57, 59)), BorderThickness = new(0), IsIndeterminate = false };
-        p.Children.Add(value); p.Children.Add(bar);
+        var p = new StackPanel { Margin = new(0, 4, 0, 12) };
+        var header = new Grid();
+        header.ColumnDefinitions.Add(new()); header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        header.Children.Add(T(output ? "处理后" : "采集输入", 12, Muted, margin: new(0)));
+        var value = T("—", 17, Accent, FontWeights.Medium, new(10, 0, 0, 0));
+        Grid.SetColumn(value, 1); header.Children.Add(value);
+        var bar = new ProgressBar { Minimum = -60, Maximum = 0, Value = -60, Height = 6, Margin = new(0, 8, 0, 0), Foreground = Accent, Background = (Brush)FindResource("Line"), BorderThickness = new(0), IsIndeterminate = false };
+        p.Children.Add(header); p.Children.Add(bar);
         meters.Add((value, bar, output)); return p;
     }
     private void ClearMeters()
