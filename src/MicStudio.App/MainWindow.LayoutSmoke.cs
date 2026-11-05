@@ -12,17 +12,19 @@ public partial class MainWindow
     {
         directory = Path.GetFullPath(directory); Directory.CreateDirectory(directory);
         RunControlEventChecks(directory);
+        var longNamePreset = new SoundPreset { Id = "layout-long-name", Name = "Personal microphone preset with a deliberately long title", Description = "A personal sound for checking long names and card wrapping.", Settings = Draft.Clone() };
+        State.Presets.Add(longNamePreset);
         var results = new List<object>();
-        // No capture, monitoring, recording, configuration writes, or OS DPI changes.
+        // No capture, monitoring, recording, system configuration writes, or OS DPI changes.
         foreach (var size in new[] { (W: 1280, H: 820), (W: 900, H: 600), (W: 600, H: 500) })
         {
             Width = Math.Min(size.W, SystemParameters.WorkArea.Width); Height = Math.Min(size.H, SystemParameters.WorkArea.Height);
             for (var page = 0; page < 7; page++)
             {
                 ShowPage(page);
-                foreach (var details in page is 1 or 2 or 6 ? new[] { false, true } : new[] { false })
+                foreach (var details in page is 0 or 1 or 2 or 3 or 4 or 6 ? new[] { false, true } : new[] { false })
                 {
-                foreach (var expander in Descendants<Expander>(PageContent).Where(e => e.Header as string is "高级功能" or "编辑快捷键")) expander.IsExpanded = details;
+                SetSmokeDetails(details);
                 await Dispatcher.InvokeAsync(() => UpdateLayout(), DispatcherPriority.Render); await Task.Delay(50);
                 var rightOverflow = PageContent.ActualWidth > PageScroll.ViewportWidth + 3;
                 var buttons = Descendants<System.Windows.Controls.Button>(PageContent).Count();
@@ -49,9 +51,9 @@ public partial class MainWindow
                 }
             }
         }
-        File.WriteAllText(Path.Combine(directory, "layout-report.json"), JsonSerializer.Serialize(new { Method = "Actual WPF window layout at 3 DIP sizes, all 7 pages plus expanded EQ/effects/shortcuts; OS DPI unchanged. Manual UI interaction separate.", Results = results }, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(Path.Combine(directory, "layout-report.json"), JsonSerializer.Serialize(new { Method = "Actual WPF window layout at 3 DIP sizes, all 7 pages plus expanded overview/EQ/effects/preset management/connections/shortcuts; includes a long personal preset name. OS DPI unchanged. Manual UI interaction separate.", Results = results }, new JsonSerializerOptions { WriteIndented = true }));
         State.Theme = "light"; ApplyTheme(); Width = 1280; Height = 820;
-        foreach (var page in new[] { 0, 2, 4, 6 })
+        foreach (var page in new[] { 0, 1, 2, 3, 4, 6 })
         {
             ShowPage(page); await Dispatcher.InvokeAsync(() => UpdateLayout(), DispatcherPriority.Render);
             var light = new RenderTargetBitmap((int)((FrameworkElement)Content).ActualWidth, (int)((FrameworkElement)Content).ActualHeight, 96, 96, PixelFormats.Pbgra32); light.Render((Visual)Content);
@@ -59,7 +61,15 @@ public partial class MainWindow
             using var file = File.Create(Path.Combine(directory, $"light-{page + 1}.png")); encoder.Save(file);
         }
         RunEnglishUiCheck(directory);
+        State.Presets.Remove(longNamePreset);
         forceClose = true;
+    }
+
+    private void SetSmokeDetails(bool expanded)
+    {
+        foreach (var expander in Descendants<Expander>(PageContent).Where(e => e.Header as string == Loc.T("高级功能", "Advanced") ||
+            e.Header as string == Loc.T("编辑快捷键", "Edit shortcuts") || e.Header as string == Loc.T("管理与导出", "Manage and export") ||
+            e.Header as string == Loc.T("高级连接", "Advanced connection"))) expander.IsExpanded = expanded;
     }
 
     /// <summary>
@@ -81,9 +91,9 @@ public partial class MainWindow
         for (var page = 0; page < 7; page++)
         {
             ShowPage(page);
-            foreach (var details in page is 1 or 2 or 6 ? new[] { false, true } : new[] { false })
+            foreach (var details in page is 0 or 1 or 2 or 3 or 4 or 6 ? new[] { false, true } : new[] { false })
             {
-                foreach (var expander in Descendants<Expander>(PageContent).Where(e => e.Header as string == Loc.T("高级功能", "Advanced") || e.Header as string == Loc.T("编辑快捷键", "Edit shortcuts"))) expander.IsExpanded = details;
+                SetSmokeDetails(details);
                 UpdateLayout();
                 foreach (var text in Descendants<TextBlock>(PageContent))
                 {
@@ -117,10 +127,10 @@ public partial class MainWindow
             Width = Math.Min(size.W, SystemParameters.WorkArea.Width); Height = Math.Min(size.H, SystemParameters.WorkArea.Height);
             for (var page = 0; page < 7; page++)
             {
-                foreach (var details in page is 1 or 2 or 6 ? new[] { false, true } : new[] { false })
+                foreach (var details in page is 0 or 1 or 2 or 3 or 4 or 6 ? new[] { false, true } : new[] { false })
                 {
                     ShowPage(page);
-                    foreach (var expander in Descendants<Expander>(PageContent).Where(e => e.Header as string == Loc.T("高级功能", "Advanced") || e.Header as string == Loc.T("编辑快捷键", "Edit shortcuts"))) expander.IsExpanded = details;
+                    SetSmokeDetails(details);
                     UpdateLayout();
                     var rightOverflow = PageContent.ActualWidth > PageScroll.ViewportWidth + 3;
                     PageScroll.ScrollToEnd(); UpdateLayout();
@@ -159,6 +169,8 @@ public partial class MainWindow
         calibrating = true; calibrationPeaks.Add(-30); suggestedGain = 18; calibrationTimer.Start(); CancelCalibration();
         Check(!calibrating && !calibrationTimer.IsEnabled && calibrationPeaks.Count == 0 && suggestedGain == null, "System input changes cancel mixed-baseline calibration");
         State.Mode = 1; ModePicker.SelectedIndex = 1; vm.Replace(new AudioSettings()); ShowPage(0); UpdateLayout();
+        Check(Descendants<Expander>(PageContent).Count() == 1 && !Descendants<Expander>(PageContent).Single().IsExpanded,
+            "Microphone page keeps calibration, system mute and recording under one collapsed Advanced section");
         var gain = Descendants<TextBox>(PageContent).Single(t => AutomationProperties.GetName(t) == "输入增益数值");
         gain.Focus(); gain.Text = "6.5";
         gain.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(this), Environment.TickCount, Key.Enter) { RoutedEvent = Keyboard.KeyDownEvent });
@@ -199,19 +211,36 @@ public partial class MainWindow
         LoadPreset(BuiltInPresets.All.Single(p => p.Id == "natural"));
         Check(State.SelectedPresetId == "natural" && Draft.Bands[0].Enabled, "Preset loads actual draft without audio");
         Check(CurrentPresetName() == "自然", "Unmodified preset shows its name");
+        ShowPage(3); UpdateLayout();
+        System.Windows.Controls.Button Tile(string automationId) => Descendants<System.Windows.Controls.Button>(PageContent).Single(b => AutomationProperties.GetAutomationId(b) == automationId);
+        Tile("sound-preset-clear").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+        Check(State.SelectedPresetId == "clear" && CurrentPresetName() == "清晰" && AutomationProperties.GetItemStatus(Tile("sound-preset-clear")) == Loc.T("已选择", "Selected") && !engine.IsRunning,
+            "Preset card click applies the sound and exposes its selected state without starting audio");
+        RunShortcutAction(ShortcutAction.NextPreset);
+        Check(State.SelectedPresetId == "warm" && AutomationProperties.GetItemStatus(Tile("sound-preset-warm")) == Loc.T("已选择", "Selected") && !engine.IsRunning,
+            "Background preset action refreshes the selected preset card without starting audio");
+        vm.Change(s => s.InputGainDb = 1);
+        Check(CurrentPresetName() == "自定义" && AutomationProperties.GetItemStatus(Tile("sound-preset-warm")) == Loc.T("未选择", "Not selected"),
+            "Manual sound edits mark the draft Custom and deselect the original preset card");
         vm.Change(s => { s.Creative.RobotEnabled = true; s.Creative.DelayEnabled = true; s.Creative.DelayMix = .23; }); State.CreativeThemeId = "custom"; ShowPage(2); UpdateLayout();
+        Check(!Descendants<Expander>(PageContent).Single(e => e.Header as string == "高级功能").IsExpanded &&
+            Descendants<System.Windows.Controls.Button>(PageContent).Count(b => AutomationProperties.GetAutomationId(b).StartsWith("creative-theme-", StringComparison.Ordinal)) == 10,
+            "Effects show ten creative theme cards with detailed controls collapsed by default");
+        SetSmokeDetails(true); UpdateLayout();
         var autoNoise = Descendants<CheckBox>(PageContent).Single(c => (c.Content as TextBlock)?.Text == "自动跟踪底噪");
         autoNoise.IsChecked = true; autoNoise.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
         Check(Draft.Denoise.AutoNoise, "Automatic noise tracking toggle reaches the draft");
         var voicePriority = Descendants<CheckBox>(PageContent).Single(c => (c.Content as TextBlock)?.Text == "语音优先（保留轻声与尾音）");
         voicePriority.IsChecked = true; voicePriority.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
         Check(Draft.Denoise.VoicePriority, "Voice priority toggle reaches the draft");
-        var creativePicker = Descendants<ComboBox>(PageContent).Single(c => c.Items.OfType<ComboBoxItem>().Any(i => i.Content as string == "氢气音"));
-        var heliumIndex = creativePicker.Items.OfType<ComboBoxItem>().ToList().FindIndex(i => i.Content as string == "氢气音");
-        creativePicker.SelectedIndex = heliumIndex;
-        Check(Math.Abs(Draft.Creative.PitchSemitones) > 0 && State.CreativeThemeId == "helium", "Helium theme applies a real pitch shift");
-        creativePicker.SelectedItem = creativePicker.Items.OfType<ComboBoxItem>().Single(i => i.Content as string == "电话 / 电台");
+        Tile("creative-theme-helium").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+        Check(Math.Abs(Draft.Creative.PitchSemitones) > 0 && State.CreativeThemeId == "helium" && AutomationProperties.GetItemStatus(Tile("creative-theme-helium")) == Loc.T("已选择", "Selected") && !engine.IsRunning,
+            "Helium theme card applies a real pitch shift and selected state without opening audio");
+        Tile("creative-theme-phone").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
         Check(Draft.Creative.PhoneEnabled && Draft.Creative.PitchSemitones == 0, "Phone theme enables the band-shaped voice and clears pitch");
+        RunShortcutAction(ShortcutAction.NextPreset);
+        Check(State.CreativeThemeId == "custom" && AutomationProperties.GetItemStatus(Tile("creative-theme-custom")) == Loc.T("已选择", "Selected") && !engine.IsRunning,
+            "Background preset changes refresh creative cards to Custom without stale theme highlighting");
         vm.Change(s => { s.Creative.RobotEnabled = true; s.Creative.DelayEnabled = true; s.Creative.DelayMix = .23; }); State.CreativeThemeId = "custom"; ShowPage(2); UpdateLayout();
         var ratioBeforeFocus = Draft.Compressor.Ratio;
         var strength = Descendants<TextBox>(PageContent).Where(t => AutomationProperties.GetName(t) == "强度数值").Skip(1).First();
@@ -233,6 +262,20 @@ public partial class MainWindow
         Check(!reloaded.State.Draft.EqEnabled && !reloaded.State.Draft.Bands[4].Enabled && reloaded.State.Draft.Bands[4].GainDb == 12, "Persistence preserves master EQ and old disabled boost");
         ShowPage(4); UpdateLayout();
         Check(Descendants<System.Windows.Controls.Button>(PageContent).Any(b => b.Content as string == "重新下载"), "Driver re-download command is reachable");
+        var connectionDetails = Descendants<Expander>(PageContent).Single(e => e.Header as string == Loc.T("高级连接", "Advanced connection"));
+        Check(!connectionDetails.IsExpanded && !ModePicker.IsVisible, "Processing route is available under collapsed Advanced connection rather than the ordinary shell");
+        connectionDetails.IsExpanded = true; UpdateLayout();
+        var visibleMode = Descendants<ComboBox>(PageContent).Single(c => AutomationProperties.GetAutomationId(c) == "processing-mode");
+        visibleMode.SelectedIndex = 0;
+        Check(State.Mode == 0 && ModePicker.SelectedIndex == 0 && !engine.IsRunning && nativeWriter == null,
+            "Advanced connection selector updates the shared processing route without opening audio");
+        Check(Descendants<Expander>(PageContent).Single(e => e.Header as string == Loc.T("高级连接", "Advanced connection")).IsExpanded,
+            "Changing processing mode keeps its expanded selector visible");
+        SetSmokeDetails(true); UpdateLayout();
+        visibleMode = Descendants<ComboBox>(PageContent).Single(c => AutomationProperties.GetAutomationId(c) == "processing-mode");
+        visibleMode.SelectedIndex = 1;
+        Check(State.Mode == 1 && ModePicker.SelectedIndex == 1 && !engine.IsRunning && nativeWriter == null,
+            "Advanced connection can restore the virtual-input route without implicit capture");
         var realInputs = inputs; var realOutputs = outputs; var savedCable = State.CableOutputId; var savedMic = State.InputDeviceId;
         inputs = [new("test-receive", "CABLE Output (VB-Audio Virtual Cable)", "Active", false, false, false, true, 48000, 2)];
         outputs = [new("test-send", "CABLE Input (VB-Audio Virtual Cable)", "Active", false, false, true, false, 48000, 2)];
