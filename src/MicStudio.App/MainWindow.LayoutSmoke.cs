@@ -14,6 +14,15 @@ public partial class MainWindow
         RunControlEventChecks(directory);
         var longNamePreset = new SoundPreset { Id = "layout-long-name", Name = "Personal microphone preset with a deliberately long title", Description = "A personal sound for checking long names and card wrapping.", Settings = Draft.Clone() };
         State.Presets.Add(longNamePreset);
+        var savedAutomaticInputs = State.AutomaticInputs;
+        var savedLayoutInputs = inputs;
+        var layoutBackup = new AudioDeviceInfo("layout-backup-one", "Preview backup microphone with a long device name", "Active", false, false, false, false, 44100, 2);
+        State.AutomaticInputs = new AutomaticInputPreferences
+        {
+            Backups = [new(layoutBackup.Id, layoutBackup.Name, 48000, 2), new("layout-backup-two", "Preview second backup microphone", 48000, 1)],
+            ExcludedInputIds = ["layout-backup-two"]
+        };
+        inputs = [.. inputs, layoutBackup];
         var results = new List<object>();
         // No capture, monitoring, recording, system configuration writes, or OS DPI changes.
         foreach (var size in new[] { (W: 1280, H: 820), (W: 900, H: 600), (W: 600, H: 500) })
@@ -37,6 +46,17 @@ public partial class MainWindow
                 var bitmap = new RenderTargetBitmap((int)((FrameworkElement)Content).ActualWidth, (int)((FrameworkElement)Content).ActualHeight, 96, 96, PixelFormats.Pbgra32); bitmap.Render(visual);
                 var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
                 using var file = File.Create(Path.Combine(directory, $"{size.W}x{size.H}-{page + 1}{(details ? "-advanced" : "")}.png")); encoder.Save(file);
+                if (page == 4 && details)
+                {
+                    var automatic = Descendants<Expander>(PageContent).Single(e => AutomationProperties.GetAutomationId(e) == "automatic-inputs");
+                    PageScroll.ScrollToVerticalOffset(Math.Max(0, automatic.TranslatePoint(new Point(), PageContent).Y - 12));
+                    await Dispatcher.InvokeAsync(() => UpdateLayout(), DispatcherPriority.Render);
+                    var backupBitmap = new RenderTargetBitmap((int)((FrameworkElement)Content).ActualWidth, (int)((FrameworkElement)Content).ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                    backupBitmap.Render(visual);
+                    var backupEncoder = new PngBitmapEncoder(); backupEncoder.Frames.Add(BitmapFrame.Create(backupBitmap));
+                    using var backupFile = File.Create(Path.Combine(directory, $"backup-devices-{size.W}x{size.H}.png")); backupEncoder.Save(backupFile);
+                    PageScroll.ScrollToTop();
+                }
                 if (page == 6 && details)
                 {
                     var shortcutsEditor = Descendants<Expander>(PageContent).Single(e => e.Header as string == "编辑快捷键");
@@ -62,6 +82,8 @@ public partial class MainWindow
         }
         RunEnglishUiCheck(directory);
         State.Presets.Remove(longNamePreset);
+        State.AutomaticInputs = savedAutomaticInputs;
+        inputs = savedLayoutInputs;
         forceClose = true;
     }
 
@@ -69,7 +91,7 @@ public partial class MainWindow
     {
         foreach (var expander in Descendants<Expander>(PageContent).Where(e => e.Header as string == Loc.T("高级功能", "Advanced") ||
             e.Header as string == Loc.T("编辑快捷键", "Edit shortcuts") || e.Header as string == Loc.T("管理与导出", "Manage and export") ||
-            e.Header as string == Loc.T("高级连接", "Advanced connection"))) expander.IsExpanded = expanded;
+            e.Header as string == Loc.T("高级连接", "Advanced connection") || AutomationProperties.GetAutomationId(e) == "automatic-inputs")) expander.IsExpanded = expanded;
     }
 
     /// <summary>
@@ -314,6 +336,7 @@ public partial class MainWindow
 
         RunBackgroundControlChecks(Check);
         RunDeviceRecoveryChecks(Check);
+        RunAutomaticInputChecks(Check);
         State.LaunchAtLogin = true; State.AutoStartProcessing = true; State.Language = UiText.Chinese; vm.Save();
         var preferenceReload = new StudioViewModel();
         Check(preferenceReload.State.LaunchAtLogin && preferenceReload.State.AutoStartProcessing, "Startup preferences persist separately from audio parameters");

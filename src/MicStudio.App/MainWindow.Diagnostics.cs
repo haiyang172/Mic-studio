@@ -36,7 +36,7 @@ public partial class MainWindow
             ProductVersion, DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm zzz"), Environment.OSVersion.VersionString, permission,
             route, inputs.Count(d => d.IsActive), selected, SampleRate,
             apoText, Loc.T("待验证", "Not verified"), outputs.Count(d => d.IsActive && d.IsCableSend), inputs.Count(d => d.IsActive && d.IsCableReceive),
-            capture, recording, engine.OutputBufferResets, meter, algorithmMs, Loc.T("待实际确认", "Pending real verification")) + EchoDiagnosticDetails() + SignalPathDiagnosticDetails() + RecoveryDiagnosticDetails();
+            capture, recording, engine.OutputBufferResets, meter, algorithmMs, Loc.T("待实际确认", "Pending real verification")) + EchoDiagnosticDetails() + SignalPathDiagnosticDetails() + RecoveryDiagnosticDetails() + AutomaticInputDiagnosticDetails();
     }
     private void BuildDiagnostics()
     {
