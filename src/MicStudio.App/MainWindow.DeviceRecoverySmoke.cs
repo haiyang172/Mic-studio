@@ -53,7 +53,7 @@ public partial class MainWindow
             Check(!State.ResumeSameDevice && !deviceRecovery.State.Enabled && !deviceRecovery.State.HasRunningIntent,
                 "Same-device recovery defaults off and startup has no capture authorization");
             ShowPage(6); UpdateLayout();
-            var preference = Descendants<CheckBox>(PageContent).Single(c => (c.Content as TextBlock)?.Text == Loc.T("同一设备重新接入后恢复", "Resume when the same devices reconnect"));
+            var preference = Descendants<CheckBox>(PageContent).Single(c => (c.Content as TextBlock)?.Text == Loc.T("断线后自动恢复", "Resume after disconnection"));
             preference.IsChecked = true;
             preference.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
             Check(State.ResumeSameDevice && deviceRecovery.State.Enabled && !deviceRecovery.State.HasRunningIntent && smokeRecoveryStarts == savedStarts && !engine.IsRunning,

@@ -49,7 +49,7 @@ public partial class MainWindow : Window
     private bool forceClose;
     private string? noticeRawText;
     private string applyState = "设置已就绪";
-    private static string ProductVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.7.0";
+    private static string ProductVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.7.1";
 
     private Brush Ink => (Brush)FindResource("Ink");
     private Brush Muted => (Brush)FindResource("Muted");
@@ -227,6 +227,11 @@ public partial class MainWindow : Window
     private void TryAutoStart()
     {
         if (!LocalMode) return;
+        if (State.AutomaticInputs.IsExcluded(State.InputDeviceId))
+        {
+            tray?.ShowBalloonTip(4000, "Mic Studio", Loc.T("已跳过登录自动处理，当前麦克风在排除名单中。", "Automatic processing was skipped because the selected microphone is excluded."), System.Windows.Forms.ToolTipIcon.Info);
+            return;
+        }
         if (SelectedInput is not { IsActive: true })
         {
             tray?.ShowBalloonTip(5000, "Mic Studio", Loc.T("登录自动开始处理已跳过：没有可用的所选麦克风。", "Automatic processing at sign-in was skipped: the selected microphone is unavailable."), System.Windows.Forms.ToolTipIcon.Warning);
@@ -347,7 +352,7 @@ public partial class MainWindow : Window
             }
             if (!initial && (previous?.IsActive != current?.IsActive || previous?.SampleRate != current?.SampleRate || previous?.Channels != current?.Channels))
             { suggestedGain = null; InvalidateDiscord(); SaveSoon(); }
-            if (initial && State.InputDeviceId is null) State.InputDeviceId = inputs.FirstOrDefault(x => x.IsActive && !x.IsCableReceive && x.IsDefaultCommunications)?.Id ?? inputs.FirstOrDefault(x => x.IsActive && !x.IsCableReceive)?.Id;
+            if (initial && State.InputDeviceId is null) State.InputDeviceId = ChooseInitialInput()?.Id;
             var list = inputs.ToList();
             if (State.InputDeviceId != null && !list.Any(d => d.Id == State.InputDeviceId))
                 list.Add(new(State.InputDeviceId, Loc.T("已保存的麦克风 · 设备已断开", "Saved microphone · device disconnected"), "Disconnected", false, false, false, false, 0, 0));
@@ -378,8 +383,9 @@ public partial class MainWindow : Window
             // A driver reinstall can recreate endpoint IDs while the app is open.
             // Resolve the current pair before a user starts, not just at first launch.
             if (cable) RefreshDevices(evaluateRecovery: false);
-            if (SelectedInput is not { IsActive: true } input) throw new InvalidOperationException(Loc.T("请选择已连接的麦克风；不会自动改用其他设备。", "Select a connected microphone; another device is never substituted automatically."));
-            var snapshot = Draft.CreateProcessingSnapshot(SampleRate, out var adjusted);
+            if (InputForAudioStart(recoveryAttempt) is not { } input)
+                throw new InvalidOperationException(Loc.T("请选择已连接的麦克风。", "Select a connected microphone."));
+            var snapshot = Draft.CreateProcessingSnapshot(input.SampleRate > 0 ? input.SampleRate : SampleRate, out var adjusted);
             if (LocalMode && apo.Found)
             {
                 // Known own hook could run twice. Refuse instead of asserting an unverified raw capture path.

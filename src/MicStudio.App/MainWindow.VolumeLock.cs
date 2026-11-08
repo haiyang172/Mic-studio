@@ -8,6 +8,7 @@ public partial class MainWindow
     private TextBlock? volumeLockStatusText;
     private System.Windows.Controls.Button? volumeLockRetry;
     private double smokeVolume = .5;
+    private bool smokeInputMuted;
     private int smokeVolumeWrites;
 
     private void InitializeVolumeLock()
@@ -36,6 +37,7 @@ public partial class MainWindow
     }
     private void SetSelectedInputVolume(string id, double scalar)
     {
+        if (id != State.InputDeviceId) return;
         var previous = volumeLock?.State;
         var coordinated = previous is { IsActive: true } && previous.EndpointId == id;
         if (coordinated) volumeLock!.SetTarget(scalar, id);
@@ -49,6 +51,13 @@ public partial class MainWindow
             if (coordinated && previous?.Target is { } target) volumeLock!.SetTarget(target, id);
             throw;
         }
+    }
+
+    private void SetSelectedInputMute(string id, bool muted)
+    {
+        if (id != State.InputDeviceId) return;
+        if (UiSmoke) smokeInputMuted = muted;
+        else devices.SetInputMute(id, muted);
     }
     private void SetVolumeLockPreference(bool enabled)
     {

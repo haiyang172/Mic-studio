@@ -1,4 +1,5 @@
 using MicStudio.Core;
+using MicStudio.WindowsAudio;
 
 namespace MicStudio.App;
 
@@ -28,6 +29,7 @@ public sealed class WorkspaceState
     public bool TransmitMuted { get; set; }
     public bool VolumeLockEnabled { get; set; }
     public bool ResumeSameDevice { get; set; }
+    public AutomaticInputPreferences AutomaticInputs { get; set; } = new();
     public string? VolumeLockEndpointId { get; set; }
     public string Language { get; set; } = UiText.Chinese;
 
@@ -50,6 +52,7 @@ public sealed class WorkspaceState
         if (Language is not (UiText.Chinese or UiText.English)) Language = UiText.Chinese;
         if (Theme is not ("dark" or "light")) Theme = "dark";
         Shortcuts ??= new(); Shortcuts.Normalize();
+        AutomaticInputs ??= new(); AutomaticInputs.Normalize();
         if (VolumeLockEnabled && string.IsNullOrWhiteSpace(VolumeLockEndpointId)) VolumeLockEnabled = false;
     }
 }

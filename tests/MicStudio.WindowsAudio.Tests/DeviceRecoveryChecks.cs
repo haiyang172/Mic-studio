@@ -8,6 +8,12 @@ internal static class DeviceRecoveryChecks
         static void Assert(bool valid) { if (!valid) throw new Exception("Device recovery authorization check failed."); }
         void Test(string name, Action action) { action(); count++; Console.WriteLine("PASS " + name); }
         static RecoveryRoute Route() => new("selected-microphone", "selected-send", "selected-receive", null, 48000, 2);
+        static RecoveryRoute AuthorizedRoute(string inputId = "selected-microphone") => Route() with
+        {
+            InputId = inputId,
+            EndpointFormats = inputId + ":48000/2;send:48000/2;receive:48000/2",
+            SharedEndpointFormats = "send:48000/2;receive:48000/2"
+        };
         static RecoveryAttempt Ready(DeviceRecoveryPolicy policy, RecoveryRoute route, Action<long> clock)
         {
             Assert(policy.ObserveUnavailable(route));
@@ -187,6 +193,209 @@ internal static class DeviceRecoveryChecks
                 try { policy.RememberRunning(route); } catch (ArgumentException) { rejected = true; }
                 Assert(rejected && !policy.State.HasRunningIntent);
             }
+        });
+        Test("Backup authorization snapshots preserve explicit order and resist caller mutation", () =>
+        {
+            var primary = AuthorizedRoute();
+            var first = AuthorizedRoute("first-backup");
+            var second = AuthorizedRoute("second-backup");
+            var backups = new List<RecoveryRoute> { first, second };
+            var policy = new DeviceRecoveryPolicy(() => 0);
+            policy.SetEnabled(true);
+            Assert(policy.RememberRunning(primary, backups));
+            backups[0] = AuthorizedRoute("unapproved-input");
+            backups.Clear();
+            var snapshot = policy.State.AuthorizedRoutes;
+            Assert(snapshot.SequenceEqual(new[] { primary, first, second }));
+            var rejected = false;
+            try { ((IList<RecoveryRoute>)snapshot)[1] = AuthorizedRoute("snapshot-replacement"); }
+            catch (NotSupportedException) { rejected = true; }
+            Assert(rejected && policy.State.AuthorizedRoutes.SequenceEqual(snapshot));
+        });
+        Test("An approved backup reservation names both its target and the interrupted source", () =>
+        {
+            var now = 0L;
+            var primary = AuthorizedRoute();
+            var backup = AuthorizedRoute("approved-backup");
+            var policy = new DeviceRecoveryPolicy(() => now);
+            policy.SetEnabled(true);
+            Assert(policy.RememberRunning(primary, [backup]) && policy.ObserveUnavailable(primary));
+            Assert(!policy.TryTakeRecovery(backup, true, out _));
+            now = 1000;
+            Assert(policy.TryTakeRecovery(backup, true, out var attempt));
+            Assert(attempt!.Route == backup && attempt.SourceRoute == primary && policy.IsAttemptCurrent(attempt));
+            var changedSource = attempt with { SourceRoute = backup };
+            Assert(!policy.IsAttemptCurrent(changedSource) && !policy.CompleteAttempt(changedSource, true));
+            Assert(policy.CompleteAttempt(attempt, true));
+            Assert(policy.State.Route == backup && policy.State.AuthorizedRoutes.SequenceEqual(new[] { primary, backup }));
+        });
+        Test("Changing an approved candidate restarts its full stability interval", () =>
+        {
+            var now = 0L;
+            var primary = AuthorizedRoute();
+            var first = AuthorizedRoute("first-backup");
+            var second = AuthorizedRoute("second-backup");
+            var policy = new DeviceRecoveryPolicy(() => now);
+            policy.SetEnabled(true);
+            policy.RememberRunning(primary, [first, second]);
+            policy.ObserveUnavailable(primary);
+            Assert(!policy.TryTakeRecovery(first, true, out _));
+            now = 900;
+            Assert(!policy.TryTakeRecovery(second, true, out _));
+            now = 1000;
+            Assert(!policy.TryTakeRecovery(first, true, out _));
+            now = 1999;
+            Assert(!policy.TryTakeRecovery(first, true, out _));
+            now = 2000;
+            Assert(policy.TryTakeRecovery(first, true, out var attempt) && attempt!.SourceRoute == primary);
+        });
+        Test("A running backup stays selected until its own confirmed outage", () =>
+        {
+            var now = 0L;
+            var primary = AuthorizedRoute();
+            var backup = AuthorizedRoute("approved-backup");
+            var policy = new DeviceRecoveryPolicy(() => now);
+            policy.SetEnabled(true);
+            policy.RememberRunning(primary, [backup]);
+            policy.ObserveUnavailable(primary);
+            policy.TryTakeRecovery(backup, true, out _);
+            now = 1000;
+            Assert(policy.TryTakeRecovery(backup, true, out var first) && policy.CompleteAttempt(first!, true));
+            now = 10000;
+            Assert(!policy.TryTakeRecovery(primary, true, out _) && policy.State.Route == backup);
+            Assert(!policy.ObserveUnavailable(primary) && !policy.State.Pending);
+            Assert(policy.ObserveUnavailable(backup));
+            Assert(!policy.TryTakeRecovery(primary, true, out _));
+            now = 11000;
+            Assert(policy.TryTakeRecovery(primary, true, out var second) && second!.SourceRoute == backup);
+            Assert(policy.CompleteAttempt(second!, true) && policy.State.Route == primary);
+        });
+        Test("A failed backup attempt pauses the interrupted route and denies another automatic target", () =>
+        {
+            var now = 0L;
+            var primary = AuthorizedRoute();
+            var first = AuthorizedRoute("first-backup");
+            var second = AuthorizedRoute("second-backup");
+            var policy = new DeviceRecoveryPolicy(() => now);
+            policy.SetEnabled(true);
+            policy.RememberRunning(primary, [first, second]);
+            policy.ObserveUnavailable(primary);
+            policy.TryTakeRecovery(first, true, out _);
+            now = 1000;
+            Assert(policy.TryTakeRecovery(first, true, out var attempt) && policy.CompleteAttempt(attempt!, false));
+            now = 100000;
+            Assert(policy.State.Route == primary && policy.State.Paused && !policy.State.HasRunningIntent);
+            Assert(!policy.ObserveUnavailable(primary) && !policy.TryTakeRecovery(second, true, out _));
+        });
+        Test("An approved backup ID cannot authorize a different capture format", () =>
+        {
+            foreach (var changed in new[]
+            {
+                AuthorizedRoute("approved-backup") with { SampleRate = 44100 },
+                AuthorizedRoute("approved-backup") with { Channels = 1 },
+                AuthorizedRoute("approved-backup") with { EndpointFormats = "new-input-format" }
+            })
+            {
+                var primary = AuthorizedRoute();
+                var backup = AuthorizedRoute("approved-backup");
+                var policy = new DeviceRecoveryPolicy(() => 0);
+                policy.SetEnabled(true);
+                policy.RememberRunning(primary, [backup]);
+                policy.ObserveUnavailable(primary);
+                Assert(!policy.TryTakeRecovery(changed, true, out _) && policy.State.Code == "route_changed");
+            }
+        });
+        Test("A changed shared endpoint fingerprint revokes an otherwise approved backup", () =>
+        {
+            var primary = AuthorizedRoute();
+            var backup = AuthorizedRoute("approved-backup");
+            var policy = new DeviceRecoveryPolicy(() => 0);
+            policy.SetEnabled(true);
+            policy.RememberRunning(primary, [backup]);
+            policy.ObserveUnavailable(primary);
+            Assert(!policy.TryTakeRecovery(backup with { SharedEndpointFormats = "send:44100/2;receive:48000/2" }, true, out _));
+            Assert(!policy.State.HasRunningIntent && policy.State.AuthorizedRoutes.Count == 0);
+        });
+        Test("Switching among approved microphones preserves the rolling automatic-attempt limit", () =>
+        {
+            var now = 0L;
+            var primary = AuthorizedRoute();
+            var backup = AuthorizedRoute("approved-backup");
+            var policy = new DeviceRecoveryPolicy(() => now);
+            policy.SetEnabled(true);
+            policy.RememberRunning(primary, [backup]);
+            for (var index = 0; index < 3; index++)
+            {
+                var source = policy.State.Route!;
+                var target = source == primary ? backup : primary;
+                Assert(policy.ObserveUnavailable(source));
+                now = index * 2000;
+                Assert(!policy.TryTakeRecovery(target, true, out _));
+                now += 1000;
+                Assert(policy.TryTakeRecovery(target, true, out var attempt) && attempt!.SourceRoute == source);
+                Assert(policy.CompleteAttempt(attempt!, true));
+            }
+            Assert(policy.State.Route == backup && policy.ObserveUnavailable(backup));
+            now = 6000;
+            Assert(!policy.TryTakeRecovery(primary, true, out _));
+            now = 7000;
+            Assert(!policy.TryTakeRecovery(primary, true, out _) && policy.State.Code == "flapping");
+            Assert(policy.State.AutomaticAttemptsInWindow == 3);
+        });
+        Test("Invalid backup authorization is rejected atomically without revoking a valid reservation", () =>
+        {
+            var now = 0L;
+            var primary = AuthorizedRoute();
+            var backup = AuthorizedRoute("approved-backup");
+            var policy = new DeviceRecoveryPolicy(() => now);
+            policy.SetEnabled(true);
+            policy.RememberRunning(primary, [backup]);
+            policy.ObserveUnavailable(primary);
+            policy.TryTakeRecovery(backup, true, out _);
+            now = 1000;
+            Assert(policy.TryTakeRecovery(backup, true, out var attempt));
+            var generation = policy.State.Generation;
+            IReadOnlyList<RecoveryRoute>[] invalid =
+            [
+                [backup, backup], [primary], [null!],
+                [backup with { InputId = primary.CableReceiveId! }],
+                [backup with { CableSendId = "another-send" }],
+                [backup with { CableReceiveId = "another-receive" }],
+                [backup with { MonitorId = "another-monitor" }],
+                [backup with { SampleRate = 0 }],
+                [backup with { EndpointFormats = null }],
+                [backup with { SharedEndpointFormats = "different-shared-format" }],
+                [backup with { SharedEndpointFormats = "format\nwith-control" }],
+                Enumerable.Range(0, DeviceRecoveryPolicy.MaximumBackupRoutes + 1).Select(index => AuthorizedRoute("backup-" + index)).ToArray()
+            ];
+            foreach (var routes in invalid)
+            {
+                var rejected = false;
+                try { policy.RememberRunning(primary, routes); } catch (ArgumentException) { rejected = true; }
+                Assert(rejected && policy.State.Generation == generation && policy.IsAttemptCurrent(attempt!));
+                Assert(policy.State.AuthorizedRoutes.SequenceEqual(new[] { primary, backup }));
+            }
+            foreach (var invalidPrimary in new[] { primary with { SharedEndpointFormats = null }, primary with { EndpointFormats = null } })
+            {
+                var rejected = false;
+                try { policy.RememberRunning(invalidPrimary, [backup]); } catch (ArgumentException) { rejected = true; }
+                Assert(rejected && policy.State.Generation == generation && policy.IsAttemptCurrent(attempt!));
+            }
+        });
+        Test("The maximum backup list can recover and cancellation erases all target permission", () =>
+        {
+            var now = 0L;
+            var primary = AuthorizedRoute();
+            var backups = Enumerable.Range(0, DeviceRecoveryPolicy.MaximumBackupRoutes).Select(index => AuthorizedRoute("backup-" + index)).ToArray();
+            var policy = new DeviceRecoveryPolicy(() => now);
+            policy.SetEnabled(true);
+            Assert(policy.RememberRunning(primary, backups) && policy.State.AuthorizedRoutes.Count == backups.Length + 1);
+            Assert(policy.ObserveUnavailable(primary));
+            Assert(!policy.TryTakeRecovery(backups[^1], true, out _));
+            now = 1000;
+            Assert(policy.TryTakeRecovery(backups[^1], true, out var attempt));
+            policy.Cancel();
+            Assert(policy.State.AuthorizedRoutes.Count == 0 && !policy.IsAttemptCurrent(attempt!) && !policy.CompleteAttempt(attempt!, true));
         });
         return count;
     }

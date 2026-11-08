@@ -17,9 +17,9 @@ public partial class MainWindow
         {
             try
             {
-                var systemVolume = devices.GetInputVolume(input.Id);
+                var systemVolume = UiSmoke ? new VolumeInfo(smokeVolume, smokeInputMuted, -96, 0, 1, 0) : devices.GetInputVolume(input.Id);
                 volume.Children.Add(Parameter("系统音量", 0, 100, systemVolume.Scalar * 100, v => { SetSelectedInputVolume(input.Id, v / 100); CancelCalibration(); InvalidateDiscord(); }, "%", 1));
-                systemMute = ButtonSwitch("麦克风静音", systemVolume.Muted, value => { devices.SetInputMute(input.Id, value); CancelCalibration(); InvalidateDiscord(); });
+                systemMute = ButtonSwitch("麦克风静音", systemVolume.Muted, value => { SetSelectedInputMute(input.Id, value); CancelCalibration(); InvalidateDiscord(); });
             }
             catch (Exception ex) { volume.Children.Add(T("系统音量不可调", 12, Amber)); volume.ToolTip = ex.Message; }
         }
