@@ -14,6 +14,11 @@ public partial class MainWindow
         Add(Card("降噪", "适合稳定底噪。",
             ButtonSwitch("降噪", Draft.Denoise.Enabled, v => vm.Change(s => s.Denoise.Enabled = v), enabled, readValue: () => Draft.Denoise.Enabled),
             Parameter("强度", 0, 100, Draft.Denoise.Strength * 100, v => vm.Change(s => s.Denoise.Strength = v / 100, true), "%", 1, enabled, readValue: () => Draft.Denoise.Strength * 100)));
+        var deEsserStrength = Parameter(Loc.T("去齿音强度", "De-esser strength"), 0, 100, Draft.DeEsser.StrengthPercent,
+            value => vm.Change(s => s.DeEsser.StrengthPercent = value, true), "%", 1, enabled,
+            readValue: () => Draft.DeEsser.StrengthPercent);
+        AutomationProperties.SetAutomationId(deEsserStrength, "de-esser-strength");
+        Add(Card(Loc.T("去齿音", "De-esser"), Loc.T("减轻刺耳的齿音。强度 0% 为关闭。", "Softens sharp s sounds. Set strength to 0% to turn it off."), deEsserStrength));
         Add(Card("音量稳定", "压低过响的讲话。",
             ButtonSwitch("压缩", Draft.Compressor.Enabled, v => vm.Change(s => s.Compressor.Enabled = v), enabled, readValue: () => Draft.Compressor.Enabled),
             Parameter("强度", 0, 100, (Draft.Compressor.Ratio - 1) / 19 * 100, v => vm.Change(s => s.Compressor.Ratio = 1 + v / 100 * 19, true), "%", 1, enabled, readValue: () => (Draft.Compressor.Ratio - 1) / 19 * 100)));
@@ -28,6 +33,13 @@ public partial class MainWindow
             Toggle("自动跟踪底噪", Draft.Denoise.AutoNoise, v => vm.Change(s => s.Denoise.AutoNoise = v), enabled),
             Toggle("语音优先（保留轻声与尾音）", Draft.Denoise.VoicePriority, v => vm.Change(s => s.Denoise.VoicePriority = v), enabled),
             Parameter("底噪参考", -90, -20, Draft.Denoise.NoiseFloorDb, v => vm.Change(s => s.Denoise.NoiseFloorDb = v, true), "dBFS", .5, enabled)));
+        details.Children.Add(Card(Loc.T("去齿音", "De-esser"), null,
+            Parameter(Loc.T("齿音门限", "Sibilance threshold"), DeEsserSettings.MinimumThresholdDb, DeEsserSettings.MaximumThresholdDb,
+                Draft.DeEsser.ThresholdDb, value => vm.Change(s => s.DeEsser.ThresholdDb = value, true), "dBFS", .5, enabled,
+                readValue: () => Draft.DeEsser.ThresholdDb),
+            Parameter(Loc.T("中心频率", "Center frequency"), DeEsserSettings.MinimumFrequencyHz, DeEsserSettings.MaximumFrequencyHz,
+                Draft.DeEsser.FrequencyHz, value => vm.Change(s => s.DeEsser.FrequencyHz = value, true), "Hz", 50, enabled,
+                readValue: () => Draft.DeEsser.FrequencyHz)));
         details.Children.Add(Card("压缩器", "补偿增益过高会增加底噪。",
             Parameter("门限", -60, 0, Draft.Compressor.ThresholdDb, v => vm.Change(s => s.Compressor.ThresholdDb = v, true), "dB", .5, enabled),
             Parameter("比例", 1, 20, Draft.Compressor.Ratio, v => vm.Change(s => s.Compressor.Ratio = v, true), ":1", .1, enabled, readValue: () => Draft.Compressor.Ratio),

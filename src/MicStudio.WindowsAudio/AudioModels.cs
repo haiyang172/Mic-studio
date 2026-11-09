@@ -27,6 +27,9 @@ public sealed record AudioEngineStatus(bool IsRunning, string Message, string? E
 {
     public AudioStopReason StopReason { get; init; }
 }
-public sealed record RecordingResult(string Path, TimeSpan Duration, string Reason, bool CapturedBeforeLocalDsp = false);
+public sealed record RecordingResult(string Path, TimeSpan Duration, string Reason, bool CapturedBeforeLocalDsp = false)
+{
+    public int SessionId { get; init; } = -1;
+}
 public sealed record VolumeInfo(double Scalar, bool Muted, float MinDb, float MaxDb, float StepDb, double LevelDb);
 public sealed record FeedbackProtectionEvent(int SessionId, double FrequencyHz, double PeakDb);

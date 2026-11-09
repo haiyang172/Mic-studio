@@ -10,6 +10,7 @@ public partial class MainWindow
 
     private void OnSoundChanged()
     {
+        if (engine.IsLoopTuning && !liveTimer.IsEnabled) liveTimer.Start();
         if (NativeMode && nativeWriter != null)
         {
             pendingNativeSettings = true;
@@ -31,6 +32,7 @@ public partial class MainWindow
     private void FlushLiveSettings()
     {
         liveTimer.Stop();
+        FlushLoopTuningSettings();
         if (pendingNativeSettings && NativeMode && nativeWriter != null)
         {
             pendingNativeSettings = false;
@@ -60,6 +62,7 @@ public partial class MainWindow
 
     private void RestoreDefaults()
     {
+        loopSuggestedGain = null;
         vm.Replace(AudioSettings.CreateDefaultForSampleRate(SampleRate));
         State.SelectedPresetId = "";
         State.CreativeThemeId = "warm";

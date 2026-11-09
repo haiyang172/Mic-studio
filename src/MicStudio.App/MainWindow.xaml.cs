@@ -49,7 +49,7 @@ public partial class MainWindow : Window
     private bool forceClose;
     private string? noticeRawText;
     private string applyState = "设置已就绪";
-    private static string ProductVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.7.1";
+    private static string ProductVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.8.0";
 
     private Brush Ink => (Brush)FindResource("Ink");
     private Brush Muted => (Brush)FindResource("Muted");
@@ -68,6 +68,7 @@ public partial class MainWindow : Window
         Width = Math.Min(1280, SystemParameters.WorkArea.Width - 24);
         Height = Math.Min(820, SystemParameters.WorkArea.Height - 24);
         engine = new(devices);
+        InitializeLoopTuning();
         InitializeEchoProtectionNotifications();
         InitializeBackgroundControls();
         InitializeDeviceRecovery();
@@ -115,7 +116,14 @@ public partial class MainWindow : Window
             if (!status.IsRunning) { activeCableSendId = null; liveTimer.Stop(); applyState = NativeMode ? Loc.T("自研 APO 参数连接已停止", "Native APO parameter control stopped") : LocalMode ? "设置已就绪" : "APO 需在设备页更新"; lastMeter = null; ClearMeters(); if (calibrating) { calibrating = false; calibrationTimer.Stop(); calibrationPeaks.Clear(); suggestedGain = null; } }
             UpdateChrome(); UpdateLiveLabels();
         });
-        engine.RecordingStopped += (_, r) => Dispatcher.BeginInvoke(() => { if (!closed) { Notice(Loc.F("录音已保存在本机（{0:0.0} 秒），未上传。停止采集后可用耳机回放。", "Recording saved locally ({0:0.0} s); nothing was uploaded. Play it through headphones after stopping capture.", r.Duration.TotalSeconds)); UpdateLiveLabels(); } });
+        engine.RecordingStopped += (_, r) => Dispatcher.BeginInvoke(() =>
+        {
+            if (closed) return;
+            CompleteTuningSourceCapture(r);
+            Notice(Loc.F("已保存录音（{0:0.0} 秒）。停止采集后可用耳机回放。",
+                "Recording saved ({0:0.0} s). Play it through headphones after stopping capture.", r.Duration.TotalSeconds));
+            UpdateLiveLabels();
+        });
         calibrationTimer.Tick += (_, _) => CompleteCalibration();
         PreviewKeyDown += (_, e) =>
         {
@@ -129,6 +137,7 @@ public partial class MainWindow : Window
             if (State.MinimizeToTray && !forceClose)
             {
                 e.Cancel = true;
+                Safe(StopLoopTuningPreview);
                 try { vm.Save(); } catch { }
                 Hide(); EnsureTray();
                 if (!trayHintShown) { trayHintShown = true; try { tray?.ShowBalloonTip(4000, "Mic Studio", Loc.T("Mic Studio 仍在后台运行。双击托盘图标可打开窗口，或从托盘菜单退出。", "Mic Studio is still running in the background. Double-click the tray icon to open it, or exit from the tray menu."), System.Windows.Forms.ToolTipIcon.Info); } catch { } }
@@ -213,6 +222,7 @@ public partial class MainWindow : Window
     {
         if (closed) return;
         closed = true; saveTimer.Stop(); liveTimer.Stop(); calibrationTimer.Stop();
+        CancelLoopTuningPreparation();
         DisposeBackgroundControls();
         recoveryTimer.Stop(); deviceRecovery.Disarm("closed");
         DisposeTrayBranding();
@@ -305,6 +315,7 @@ public partial class MainWindow : Window
             presetBadge.Text = Loc.T("当前预设：", "Preset: ") + CurrentPresetName();
         }
         UpdateTrayMenu();
+        UpdateLoopTuningChrome();
         UpdateSignalPath();
         var wasBuilding = building; building = true;
         try { foreach (var refresh in soundControlRefreshers.ToArray()) refresh(); }
@@ -332,6 +343,7 @@ public partial class MainWindow : Window
         StopNativeProcessing();
         activeCableSendId = null;
         liveTimer.Stop();
+        CancelLoopTuningPreparation();
         calibrating = false; calibrationTimer.Stop();
         engine.Stop(); engine.StopPlayback(); lastMeter = null; ClearMeters(); applyState = NativeMode ? Loc.T("自研 APO 参数连接已停止", "Native APO parameter control stopped") : LocalMode ? "设置已就绪" : "APO 需在设备页更新"; UpdateChrome(); UpdateLiveLabels();
     }
@@ -343,6 +355,7 @@ public partial class MainWindow : Window
         {
             var previous = SelectedInput;
             inputs = devices.EnumerateInputs(); outputs = devices.EnumerateOutputs();
+            CheckLoopTuningOutput();
             var current = SelectedInput;
             CheckVolumeLockDevice();
             if (nativeWriter != null && (current is not { IsActive: true } || previous?.SampleRate != current.SampleRate || previous?.Channels != current.Channels))
@@ -367,8 +380,9 @@ public partial class MainWindow : Window
         if (!initial && evaluateRecovery) EvaluateDeviceRecovery();
     }
 
-    private void StartAudio(bool cable = false, RecoveryAttempt? recoveryAttempt = null, bool fromSignIn = false)
+    private void StartAudio(bool cable = false, RecoveryAttempt? recoveryAttempt = null, bool fromSignIn = false, bool captureOnly = false)
     {
+        if (captureOnly) cable = false;
         if (recoveryAttempt == null)
         {
             CancelDeviceRecovery("manual_start");
@@ -378,6 +392,7 @@ public partial class MainWindow : Window
         }
         Safe(() =>
         {
+            StopLoopTuningPreview();
             if (NativeMode) { StartNativeProcessing(); return; }
             DisableOwnNativeBeforeLocalStart();
             // A driver reinstall can recreate endpoint IDs while the app is open.
@@ -404,8 +419,8 @@ public partial class MainWindow : Window
             ResetPttForSafety(true);
             if (recoveryAttempt != null && !RecoveryAttemptCanStart(recoveryAttempt))
                 throw new InvalidOperationException(Loc.T("恢复目标已改变，请手动确认设备后开始。", "The recovery target changed. Confirm devices and start manually."));
-            engine.Start(new CaptureOptions { InputDeviceId = input.Id, ProcessLocally = LocalMode, Settings = snapshot, CableOutputDeviceId = cable ? State.CableOutputId : null, MonitorOutputDeviceId = monitor ? monitorId : null, MonitorConfirmedHeadphones = headphones,
-                EchoCancellationEnabled = LocalMode && State.EchoCancellationEnabled, EchoReferenceOutputDeviceId = State.EchoReferenceOutputDeviceId,
+            engine.Start(new CaptureOptions { InputDeviceId = input.Id, ProcessLocally = LocalMode, Settings = snapshot, CableOutputDeviceId = cable ? State.CableOutputId : null, MonitorOutputDeviceId = !captureOnly && monitor ? monitorId : null, MonitorConfirmedHeadphones = headphones,
+                EchoCancellationEnabled = !captureOnly && LocalMode && State.EchoCancellationEnabled, EchoReferenceOutputDeviceId = State.EchoReferenceOutputDeviceId,
                 TransmitEnabled = !State.TransmitMuted && !State.Shortcuts.PushToTalkEnabled,
                 ExpectedInputSampleRate = recoveryAttempt?.Route.SampleRate, ExpectedInputChannels = recoveryAttempt?.Route.Channels });
             activeCableSendId = cable ? State.CableOutputId : null;
@@ -426,6 +441,7 @@ public partial class MainWindow : Window
             var eqOnly = Draft.CreateProcessingSnapshot(SampleRate, out _);
             var excluded = ApoConfigGenerator.GetUnsupportedEffects(eqOnly);
             eqOnly.Denoise.Enabled = eqOnly.Compressor.Enabled = eqOnly.Gate.Enabled = eqOnly.Limiter.Enabled = false;
+            eqOnly.DeEsser.StrengthPercent = 0;
             eqOnly.Creative.SaturationEnabled = eqOnly.Creative.DelayEnabled = eqOnly.Creative.ReverbEnabled = eqOnly.Creative.RobotEnabled = false;
             var plan = new ApoConfigService(apo).Preview(eqOnly, State.InputDeviceId ?? "", SampleRate);
             var extra = excluded.Count > 0 ? Loc.T("当前路线仅应用增益与 EQ。以下本地效果不写入 APO：", "This route applies gain and EQ only. These local effects are not written to APO: ") + Loc.Join(excluded) + Loc.T("。\n\n", ".\n\n") : "";

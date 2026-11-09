@@ -37,6 +37,108 @@ Test("Device snapshot adapts enabled high bands without changing the saved prese
     Require(!copy.Bands[6].Enabled && copy.Bands[6].GainDb == 12, "Disabled legacy boost activated");
     copy.Bands[4].GainDb = -3; Near(saved.Bands[4].GainDb, 0, 0, "Snapshot aliases saved bands");
 });
+Test("De-esser settings load old presets safely and adapt to narrowband input", () =>
+{
+    var saved = Flat();
+    var legacy = System.Text.Json.Nodes.JsonNode.Parse(System.Text.Json.JsonSerializer.Serialize(saved, JsonDefaults.Options))!.AsObject();
+    legacy.Remove("deEsser");
+    var restored = System.Text.Json.JsonSerializer.Deserialize<AudioSettings>(legacy.ToJsonString(), JsonDefaults.Options)!;
+    restored.Validate();
+    Near(restored.DeEsser.StrengthPercent, 0, 0, "Old preset activated the de-esser");
+    var audio = Tone(6500, .2, 4800);
+    var original = (float[])audio.Clone();
+    new DspProcessor(48000, 1, restored).Process(audio, 0, audio.Length);
+    Require(audio.SequenceEqual(original), "Disabled de-esser altered the old preset");
+
+    saved.DeEsser.StrengthPercent = 65;
+    saved.DeEsser.FrequencyHz = 10000;
+    saved.DeEsser.ThresholdDb = -35;
+    var snapshot = saved.CreateProcessingSnapshot(8000, out var adjustedBands);
+    snapshot.Validate(8000);
+    Require(snapshot.DeEsser.FrequencyHz < 4000 && snapshot.DeEsser.StrengthPercent == 65 &&
+        snapshot.DeEsser.ThresholdDb == -35 && adjustedBands.Count == 0, "Narrowband de-esser snapshot");
+    Near(saved.DeEsser.FrequencyHz, 10000, 0, "Saved center was altered");
+    saved.DeEsser.ThresholdDb = double.NaN;
+    Reject(() => saved.Validate(), "Non-finite de-esser threshold accepted");
+});
+Test("De-esser attenuates loud sibilance selectively and releases into a quiet tail", () =>
+{
+    const int section = 14400;
+    const double center = 6500;
+    var dry = new float[section * 3 * 2];
+    for (var frame = 0; frame < dry.Length / 2; frame++)
+    {
+        var portion = frame / section;
+        var low = (portion < 2 ? .18 : .018) * Math.Sin(2 * Math.PI * 1000 * frame / 48000);
+        var high = (portion == 1 ? .2 : .008) * Math.Sin(2 * Math.PI * center * frame / 48000);
+        dry[frame * 2] = (float)(low + high);
+    }
+    var processed = (float[])dry.Clone();
+    var settings = Flat();
+    settings.DeEsser.StrengthPercent = 100;
+    var processor = new DspProcessor(48000, 2, settings);
+    processor.Process(processed, 0, processed.Length);
+
+    double BandDb(float[] samples, int endFrame, double frequency)
+    {
+        const int window = 4800;
+        double sine = 0, cosine = 0;
+        for (var frame = endFrame - window; frame < endFrame; frame++)
+        {
+            var angle = 2 * Math.PI * frequency * frame / 48000;
+            sine += samples[frame * 2] * Math.Sin(angle);
+            cosine += samples[frame * 2] * Math.Cos(angle);
+        }
+        return DspProcessor.LinearToDb(2 * Math.Sqrt(sine * sine + cosine * cosine) / window);
+    }
+    double Change(int part, double frequency) => BandDb(processed, part * section, frequency) - BandDb(dry, part * section, frequency);
+
+    var cut = Change(2, center);
+    Require(cut is < -4 and > -12.5, $"High-band reduction outside expected range: {cut:F2} dB");
+    Near(Change(2, 1000), 0, .5, "Loud vowel removed together with sibilance");
+    Near(Change(1, center), 0, .1, "Quiet consonant was removed");
+    Near(Change(3, center), 0, .2, "Reduction did not release into the quiet tail");
+    Require(processed.Where((_, index) => index % 2 != 0).All(sample => sample == 0), "De-esser leaked into silent channel");
+    Require(processor.AlgorithmLatencySamples == 0, "De-esser added buffering latency");
+});
+Test("Live de-esser updates keep history and turn off without a step", () =>
+{
+    var settings = Flat();
+    settings.DeEsser.StrengthPercent = 100;
+    var live = new DspProcessor(48000, 1, settings);
+    var steady = new DspProcessor(48000, 1, settings);
+    var tone = Tone(6500, .2, 14400);
+    var initial = (float[])tone.Clone();
+    var expected = (float[])tone.Clone();
+    live.Process(initial, 0, initial.Length);
+    steady.Process(expected, 0, expected.Length);
+    live.UpdateSettings(settings.Clone());
+    var unchanged = (float[])tone.Clone();
+    var reference = (float[])tone.Clone();
+    live.Process(unchanged, 0, unchanged.Length);
+    steady.Process(reference, 0, reference.Length);
+    Require(unchanged.SequenceEqual(reference), "Live revision dropped the de-esser envelope or filter history");
+
+    settings.DeEsser.FrequencyHz = 11500;
+    live.UpdateSettings(settings);
+    steady.UpdateSettings(settings);
+    var moved = (float[])tone.Clone();
+    var movedReference = (float[])tone.Clone();
+    live.Process(moved, 0, moved.Length);
+    steady.Process(movedReference, 0, movedReference.Length);
+    Require(moved.All(float.IsFinite) && Rms(moved, 9600) > Rms(reference, 9600) * 1.5, "Live band center did not move away from the tone");
+
+    settings.DeEsser.StrengthPercent = 0;
+    live.UpdateSettings(settings);
+    var released = Tone(6500, .2, 24000);
+    var dry = (float[])released.Clone();
+    var stillActive = (float[])released.Clone();
+    live.Process(released, 0, released.Length);
+    steady.Process(stillActive, 0, stillActive.Length);
+    Require(Enumerable.Range(0, 24).All(index => Math.Abs(released[index] - stillActive[index]) < .004),
+        "Disable jumped at the block boundary");
+    Require(released.Skip(21600).SequenceEqual(dry.Skip(21600)), "De-esser did not become transparent after release");
+});
 Test("Legacy JSON preserves disabled bands and adds only the master EQ default", () =>
 {
     var s = Flat(); s.Bands[4].GainDb = 12;

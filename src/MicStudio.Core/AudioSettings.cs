@@ -25,6 +25,21 @@ public sealed class DenoiseSettings
     public bool VoicePriority { get; set; }
 }
 
+public sealed class DeEsserSettings
+{
+    public const double MinimumThresholdDb = -60;
+    public const double MaximumThresholdDb = -6;
+    public const double MinimumFrequencyHz = 3000;
+    public const double MaximumFrequencyHz = 12000;
+
+    public double StrengthPercent { get; set; }
+    public double ThresholdDb { get; set; } = -32;
+    public double FrequencyHz { get; set; } = 6500;
+
+    // A center very close to Nyquist would leave almost no usable band on narrowband devices.
+    internal double FrequencyForSampleRate(int sampleRate) => Math.Min(FrequencyHz, sampleRate * 0.4);
+}
+
 public sealed class CompressorSettings
 {
     public bool Enabled { get; set; }
@@ -78,6 +93,7 @@ public sealed class AudioSettings
     public bool EqEnabled { get; set; } = true;
     public List<EqBand> Bands { get; set; } = CreateDefaultBands();
     public DenoiseSettings Denoise { get; set; } = new();
+    public DeEsserSettings DeEsser { get; set; } = new();
     public CompressorSettings Compressor { get; set; } = new();
     public GateSettings Gate { get; set; } = new();
     public LimiterSettings Limiter { get; set; } = new();
@@ -116,6 +132,7 @@ public sealed class AudioSettings
             band.FrequencyHz = upper;
             adjusted.Add(band.Name);
         }
+        copy.DeEsser.FrequencyHz = copy.DeEsser.FrequencyForSampleRate(sampleRate);
         copy.Validate(sampleRate);
         adjustedBands = adjusted;
         return copy;
@@ -139,8 +156,11 @@ public sealed class AudioSettings
             if (b.Enabled && b.FrequencyHz >= sampleRate * 0.49) throw new ArgumentException(UiText.T($"{b.Name}频率超过当前采样率的有效范围。", "A band frequency is outside the current sample rate's valid range."));
             Check(b.GainDb, -12, 12, "频段增益", "Band gain"); Check(b.Q, 0.2, 10, "Q", "Q");
         }
-        if (Denoise is null || Compressor is null || Gate is null || Limiter is null || Creative is null) throw new ArgumentException(UiText.T("效果参数不完整。", "Effect parameters are incomplete."));
+        if (Denoise is null || DeEsser is null || Compressor is null || Gate is null || Limiter is null || Creative is null) throw new ArgumentException(UiText.T("效果参数不完整。", "Effect parameters are incomplete."));
         Check(Denoise.Strength, 0, 1, "降噪强度", "Noise reduction strength"); Check(Denoise.NoiseFloorDb, -90, -20, "噪声参考电平", "Noise reference level");
+        Check(DeEsser.StrengthPercent, 0, 100, "去齿音强度", "De-esser strength");
+        Check(DeEsser.ThresholdDb, DeEsserSettings.MinimumThresholdDb, DeEsserSettings.MaximumThresholdDb, "去齿音门限", "De-esser threshold");
+        Check(DeEsser.FrequencyHz, DeEsserSettings.MinimumFrequencyHz, DeEsserSettings.MaximumFrequencyHz, "去齿音中心频率", "De-esser center frequency");
         Check(Compressor.ThresholdDb, -60, 0, "压缩门限", "Compressor threshold"); Check(Compressor.Ratio, 1, 20, "压缩比", "Compression ratio"); Check(Compressor.AttackMs, 0.1, 200, "压缩启动", "Compressor attack"); Check(Compressor.ReleaseMs, 10, 2000, "压缩释放", "Compressor release"); Check(Compressor.MakeupDb, 0, 18, "压缩补偿", "Compressor makeup");
         Check(Gate.ThresholdDb, -90, -10, "扩展门限", "Expander threshold"); Check(Gate.Ratio, 1, 10, "扩展比例", "Expander ratio"); Check(Gate.AttackMs, 0.1, 100, "扩展启动", "Expander attack"); Check(Gate.HoldMs, 0, 1000, "扩展保持", "Expander hold"); Check(Gate.ReleaseMs, 20, 2000, "扩展释放", "Expander release"); Check(Gate.RangeDb, 0, 60, "扩展范围", "Expander range");
         Check(Limiter.CeilingDb, -12, -0.1, "限幅上限", "Limiter ceiling"); Check(Limiter.ReleaseMs, 10, 1000, "限幅释放", "Limiter release");

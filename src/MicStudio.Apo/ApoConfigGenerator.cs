@@ -23,6 +23,7 @@ public static partial class ApoConfigGenerator
     {
         var names = new List<string>();
         if (settings.Denoise.Enabled) names.Add("频谱降噪");
+        if (settings.DeEsser.StrengthPercent > 0) names.Add(UiText.T("去齿音", "De-esser"));
         if (settings.Compressor.Enabled) names.Add("压缩器");
         if (settings.Gate.Enabled) names.Add("扩展器/噪声门");
         if (settings.Limiter.Enabled) names.Add("采样峰值限幅");

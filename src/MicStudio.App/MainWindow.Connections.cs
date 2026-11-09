@@ -68,8 +68,8 @@ public partial class MainWindow
         Add(Card("用作其他软件的输入", "自动选择匹配的 CABLE 收发端；不会修改其他软件或 Windows 默认输入。", routeControls));
         Add(Card(Loc.T("外部监听保护", "External monitoring protection"), null, ExternalMonitoringControls()));
         var physical = outputs.Where(d => d.IsActive && !AudioDeviceService.IsVirtualCableEndpoint(d.Name)).ToList();
-        Add(Card("耳机监听", "仅选择并佩戴物理耳机后开启，监听额外衰减 12 dB；更改监听设置会停止当前音频。", DevicePicker(physical, State.PlaybackOutputId, id => { CancelDeviceRecovery("monitor_changed"); State.PlaybackOutputId = id; monitorId = id; if (engine.IsRunning) StopAudio(); SaveSoon(); }),
-            Toggle("已佩戴耳机", headphones, v => { CancelDeviceRecovery("monitor_changed"); headphones = v; if (!v) { monitor = false; if (engine.IsRunning) StopAudio(); } }),
+        Add(Card("耳机监听", "仅选择并佩戴物理耳机后开启，监听额外衰减 12 dB；更改监听设置会停止当前音频。", DevicePicker(physical, State.PlaybackOutputId, id => { CancelDeviceRecovery("monitor_changed"); Safe(StopLoopTuningPreview); State.PlaybackOutputId = id; monitorId = id; if (engine.IsRunning) StopAudio(); SaveSoon(); }),
+            Toggle("已佩戴耳机", headphones, v => { CancelDeviceRecovery("monitor_changed"); headphones = v; if (!v) { Safe(StopLoopTuningPreview); monitor = false; if (engine.IsRunning) StopAudio(); } }),
             Toggle("开启监听（下次启动生效）", monitor, v =>
             {
                 if (v && (!headphones || State.PlaybackOutputId is null)) { Notice("先选择耳机并确认佩戴。"); ShowPage(4); return; }

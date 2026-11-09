@@ -98,18 +98,8 @@ public static class OfflineAudioProcessor
                 }
             }
             if (sampleCount == 0 || dryStats.Count != wetStats.Count) throw new InvalidDataException("音频为空或无法对齐算法缓冲。");
-            const double ceiling = 0.8912509381337456; // -1 dBFS sample peak, not true peak.
-            var referenceGain = Math.Min(1, ceiling / Math.Max(ceiling, dryStats.Peak));
-            var wetGain = Math.Min(1, ceiling / Math.Max(ceiling, wetStats.Peak));
-            var matched = matchLoudness && dryStats.Rms > 1e-9 && wetStats.Rms > 1e-9;
-            if (matched)
-            {
-                // Both gains only attenuate. The safer attainable common RMS is used,
-                // so matching never amplifies one signal into clipping.
-                var target = Math.Min(dryStats.Rms * referenceGain, wetStats.Rms * wetGain);
-                referenceGain = target / dryStats.Rms;
-                wetGain = target / wetStats.Rms;
-            }
+            var (referenceGain, wetGain, matched) = PlaybackComparisonLevels.CalculateGains(
+                dryStats.Rms, dryStats.Peak, wetStats.Rms, wetStats.Peak, matchLoudness);
             WriteScaled(inputPath, finalReference, referenceGain, cancellationToken);
             WriteScaled(unscaledWet, finalWet, wetGain, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();

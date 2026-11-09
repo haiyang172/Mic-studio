@@ -656,6 +656,7 @@ static void RunSyntheticTests()
     count += DeviceRecoveryChecks.Run();
     count += RecoveryCaptureContractChecks.Run();
     count += AutomaticInputPreferencesChecks.Run();
+    count += LoopTuningChecks.Run();
     Console.WriteLine($"PASS {count} WindowsAudio synthetic/idle tests. No microphone capture, recording, or playback was started.");
 
     void Test(string name, Action body) { body(); count++; Console.WriteLine($"PASS {name}"); }

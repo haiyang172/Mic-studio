@@ -9,7 +9,9 @@ public partial class MainWindow
     private IEnumerable<SoundPreset> AllPresets() => BuiltInPresets.All.Concat(State.Presets);
     private void LoadPreset(SoundPreset preset)
     {
-        preset.Validate(); vm.Replace(preset.Settings); State.SelectedPresetId = preset.Id; State.CreativeThemeId = "custom"; SaveSoon(); ShowPage(currentPage);
+        preset.Validate();
+        loopSuggestedGain = null;
+        vm.Replace(preset.Settings); State.SelectedPresetId = preset.Id; State.CreativeThemeId = "custom"; SaveSoon(); ShowPage(currentPage);
     }
     private void SavePreset()
     {

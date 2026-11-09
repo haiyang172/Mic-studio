@@ -45,21 +45,31 @@ public sealed class AudioEngine : IDisposable
     private WaveFileWriter? _writer;
     private string? _recordingPath;
     private long _recordedSamples;
+    private int _recordingSession;
     private long _recordingLimitSamples;
     private bool _recordSource;
     private WasapiOut? _playback;
     private WaveFileReader? _playbackReader;
     private MMDevice? _playbackDevice;
+    private LoopTuningSampleProvider? _loopPlayback;
+    private CancellationTokenSource? _loopPreparation;
+    private int _playbackGeneration;
 
     public event EventHandler<AudioMeter>? MeterUpdated;
     public event EventHandler<AudioEngineStatus>? StatusChanged;
     public event EventHandler<RecordingResult>? RecordingStopped;
     public event EventHandler<FeedbackProtectionEvent>? FeedbackProtectionTriggered;
     public event EventHandler<EchoCancellationState>? EchoCancellationStatusChanged;
+    public event EventHandler? LoopTuningStopped;
     public bool IsRunning { get { lock (_data) return _running; } }
     public int SessionId => Volatile.Read(ref _session);
     public bool IsRecording { get { lock (_data) return _writer != null; } }
     public bool IsPlaying { get { lock (_lifecycle) return _playback?.PlaybackState == PlaybackState.Playing; } }
+    public bool IsLoopTuning => LoopTuningSessionId.HasValue;
+    public int? LoopTuningSessionId
+    {
+        get { lock (_lifecycle) return IsLoopPlaying(_playbackGeneration) ? _playbackGeneration : null; }
+    }
     public string? LastRecordingPath { get; private set; }
     public bool LastRecordingCapturedBeforeLocalDsp { get; private set; }
     public int SampleRate { get { lock (_data) return _format?.SampleRate ?? 0; } }
@@ -409,6 +419,7 @@ public sealed class AudioEngine : IDisposable
             try { _writer = new WaveFileWriter(stream, WaveFormat.CreateIeeeFloatWaveFormat(_format.SampleRate, _format.Channels)); }
             catch { stream.Dispose(); throw; }
             _recordingPath = fullPath;
+            _recordingSession = _session;
             _recordedSamples = 0;
             _recordSource = recordSource;
             _recordingLimitSamples = (long)_format.SampleRate * _format.Channels * maxSeconds;
@@ -441,7 +452,7 @@ public sealed class AudioEngine : IDisposable
         writer.Dispose();
         LastRecordingPath = path;
         LastRecordingCapturedBeforeLocalDsp = _recordSource || _dsp == null;
-        return new(path, duration, reason, LastRecordingCapturedBeforeLocalDsp);
+        return new(path, duration, reason, LastRecordingCapturedBeforeLocalDsp) { SessionId = _recordingSession };
     }
 
     public void Stop()
@@ -514,44 +525,181 @@ public sealed class AudioEngine : IDisposable
             StopPlaybackCore();
             try
             {
-                using var enumerator = new MMDeviceEnumerator();
-                _playbackDevice = GetActiveDevice(enumerator, outputDeviceId, DataFlow.Render);
-                if (AudioDeviceService.IsVirtualCableEndpoint(_playbackDevice.FriendlyName))
-                    throw new InvalidOperationException("录音试听请选择物理耳机或扬声器，不发送到通话线路。");
-                _playbackReader = new WaveFileReader(path);
-                ISampleProvider source = _playbackReader.ToSampleProvider();
-                var mix = _playbackDevice.AudioClient.MixFormat;
-                if (source.WaveFormat.Channels != mix.Channels) source = new ChannelAdapter(source, mix.Channels);
-                if (source.WaveFormat.SampleRate != mix.SampleRate) source = new WdlResamplingSampleProvider(source, mix.SampleRate);
-                _playback = new WasapiOut(_playbackDevice, AudioClientShareMode.Shared, true, 80);
-                _playback.PlaybackStopped += OnPlaybackStopped;
-                _playback.Init(source.ToWaveProvider());
-                _playback.Play();
+                StartPlaybackCore(outputDeviceId, () =>
+                {
+                    _playbackReader = new WaveFileReader(path);
+                    return _playbackReader.ToSampleProvider();
+                }, loop: false);
             }
             catch { StopPlaybackCore(); throw; }
         }
     }
+
+    /// <summary>
+    /// Plays the last DSP-before recording through the explicitly confirmed headphones.
+    /// Preparation runs on a worker; stop, capture start, or a replacement playback invalidates it.
+    /// </summary>
+    public async Task<int?> StartLoopTuningAsync(string outputDeviceId, bool headphonesConfirmed,
+        AudioSettings settings, bool matchLoudness = true, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputDeviceId);
+        ArgumentNullException.ThrowIfNull(settings);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!headphonesConfirmed)
+            throw new InvalidOperationException(UiText.T("请先选择并确认已佩戴耳机。", "Select headphones and confirm you are wearing them first."));
+
+        string path;
+        AudioSettings snapshot;
+        CancellationTokenSource preparation;
+        int generation;
+        lock (_lifecycle)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            lock (_data)
+            {
+                if (_running || _writer != null)
+                    throw new InvalidOperationException(UiText.T("请先停止麦克风处理，再开始循环调音。", "Stop microphone processing before starting loop tuning."));
+                if (!LastRecordingCapturedBeforeLocalDsp || LastRecordingPath is not { } recordingPath)
+                    throw new InvalidOperationException(UiText.T("请先录制一段 DSP 前的 A/B 源音频。", "Record a pre-DSP A/B source first."));
+                path = recordingPath;
+            }
+            snapshot = settings.Clone();
+            StopPlaybackCore();
+            preparation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _loopPreparation = preparation;
+            generation = _playbackGeneration;
+        }
+        try
+        {
+            var loop = await Task.Run(() => LoopTuningSampleProvider.Load(path, snapshot, matchLoudness, preparation.Token),
+                preparation.Token);
+            lock (_lifecycle)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (_disposed || _playbackGeneration != generation || !ReferenceEquals(_loopPreparation, preparation))
+                    return null;
+                _loopPreparation = null;
+                try
+                {
+                    StartPlaybackCore(outputDeviceId, () => loop, loop: true, preparation.Token);
+                    _loopPlayback = loop;
+                    return generation;
+                }
+                catch { StopPlaybackCore(); throw; }
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && preparation.IsCancellationRequested)
+        {
+            return null;
+        }
+        finally
+        {
+            lock (_lifecycle)
+            {
+                if (ReferenceEquals(_loopPreparation, preparation)) _loopPreparation = null;
+            }
+            preparation.Dispose();
+        }
+    }
+
+    private void StartPlaybackCore(string outputDeviceId, Func<ISampleProvider> createSource, bool loop,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        using var enumerator = new MMDeviceEnumerator();
+        _playbackDevice = GetActiveDevice(enumerator, outputDeviceId, DataFlow.Render);
+        if (AudioDeviceService.IsVirtualCableEndpoint(_playbackDevice.FriendlyName))
+            throw new InvalidOperationException(loop
+                ? UiText.T("循环调音请选择物理耳机。", "Choose physical headphones for loop tuning.")
+                : "录音试听请选择物理耳机或扬声器，不发送到通话线路。");
+        var source = createSource();
+        var mix = _playbackDevice.AudioClient.MixFormat;
+        if (source.WaveFormat.Channels != mix.Channels) source = new ChannelAdapter(source, mix.Channels);
+        if (source.WaveFormat.SampleRate != mix.SampleRate) source = new WdlResamplingSampleProvider(source, mix.SampleRate);
+        if (loop) source = new PlaybackComparisonLevels.OutputCeiling(source);
+        _playback = new WasapiOut(_playbackDevice, AudioClientShareMode.Shared, true, 80);
+        _playback.PlaybackStopped += OnPlaybackStopped;
+        _playback.Init(source.ToWaveProvider());
+        cancellationToken.ThrowIfCancellationRequested();
+        _playback.Play();
+    }
+
+    // UI callers serialize parameter revisions, just as for live capture updates.
+    public bool TryUpdateLoopTuningSettings(AudioSettings settings, int expectedSessionId)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        LoopTuningSampleProvider loop;
+        lock (_lifecycle)
+        {
+            if (!IsLoopPlaying(expectedSessionId) || _loopPlayback is not { } current) return false;
+            loop = current;
+        }
+        loop.UpdateSettings(settings);
+        lock (_lifecycle) return IsLoopPlaying(expectedSessionId) && ReferenceEquals(_loopPlayback, loop);
+    }
+
+    public bool TrySetLoopTuningProcessed(bool processed, int expectedSessionId)
+    {
+        lock (_lifecycle)
+        {
+            if (!IsLoopPlaying(expectedSessionId) || _loopPlayback is not { } current) return false;
+            current.SetProcessed(processed);
+            return true;
+        }
+    }
+
+    public bool TrySetLoopTuningLoudnessMatching(bool match, int expectedSessionId)
+    {
+        lock (_lifecycle)
+        {
+            if (!IsLoopPlaying(expectedSessionId) || _loopPlayback is not { } current) return false;
+            current.SetLoudnessMatching(match);
+            return true;
+        }
+    }
+
+    private bool IsLoopPlaying(int expectedSessionId) => _loopPlayback != null &&
+        _playbackGeneration == expectedSessionId && _playback?.PlaybackState == PlaybackState.Playing;
 
     private void OnPlaybackStopped(object? sender, StoppedEventArgs e) => Task.Run(() =>
     {
         lock (_lifecycle)
         {
             if (sender != _playback) return;
+            var loop = _loopPlayback != null;
             StopPlaybackCore();
-            RaiseStatus(new(IsRunning, e.Exception == null ? "录音回放结束" : $"录音回放失败：{e.Exception.Message}",
+            string message;
+            if (loop)
+                message = e.Exception == null ? UiText.T("循环调音已停止。", "Loop tuning stopped.")
+                    : UiText.F("循环调音已停止：{0}", "Loop tuning stopped: {0}", e.Exception.Message);
+            else
+                message = e.Exception == null ? "录音回放结束" : $"录音回放失败：{e.Exception.Message}";
+            RaiseStatus(new(IsRunning, message,
                 e.Exception == null ? null : $"0x{e.Exception.HResult:X8}"));
         }
     });
     public void StopPlayback() { lock (_lifecycle) StopPlaybackCore(); }
     private void StopPlaybackCore()
     {
-        if (_playback != null)
+        _playbackGeneration++;
+        var preparation = _loopPreparation;
+        _loopPreparation = null;
+        preparation?.Cancel();
+        var loopWasActive = _loopPlayback != null;
+        _loopPlayback = null;
+        var playback = _playback;
+        _playback = null;
+        if (playback != null)
         {
-            _playback.PlaybackStopped -= OnPlaybackStopped;
-            try { _playback.Stop(); } finally { _playback.Dispose(); _playback = null; }
+            playback.PlaybackStopped -= OnPlaybackStopped;
+            try { playback.Stop(); } catch (Exception ex) { ReportCleanupError(ex); }
+            try { playback.Dispose(); } catch (Exception ex) { ReportCleanupError(ex); }
         }
-        _playbackReader?.Dispose(); _playbackReader = null;
-        _playbackDevice?.Dispose(); _playbackDevice = null;
+        try { _playbackReader?.Dispose(); } catch (Exception ex) { ReportCleanupError(ex); }
+        _playbackReader = null;
+        try { _playbackDevice?.Dispose(); } catch (Exception ex) { ReportCleanupError(ex); }
+        _playbackDevice = null;
+        if (loopWasActive) LoopTuningStopped?.Invoke(this, EventArgs.Empty);
     }
 
     private void RaiseStatus(AudioEngineStatus status) => StatusChanged?.Invoke(this,

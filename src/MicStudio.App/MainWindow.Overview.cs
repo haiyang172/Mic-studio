@@ -5,8 +5,8 @@ namespace MicStudio.App;
 
 public partial class MainWindow
 {
-    private bool stopAfterCalibration;
     private OfflineComparisonResult? comparison;
+    private (string Path, int SessionId)? tuningSourceCapture;
 
     private void BuildOverview()
     {
@@ -18,8 +18,20 @@ public partial class MainWindow
             try
             {
                 var systemVolume = UiSmoke ? new VolumeInfo(smokeVolume, smokeInputMuted, -96, 0, 1, 0) : devices.GetInputVolume(input.Id);
-                volume.Children.Add(Parameter("系统音量", 0, 100, systemVolume.Scalar * 100, v => { SetSelectedInputVolume(input.Id, v / 100); CancelCalibration(); InvalidateDiscord(); }, "%", 1));
-                systemMute = ButtonSwitch("麦克风静音", systemVolume.Muted, value => { SetSelectedInputMute(input.Id, value); CancelCalibration(); InvalidateDiscord(); });
+                volume.Children.Add(Parameter("系统音量", 0, 100, systemVolume.Scalar * 100, v =>
+                {
+                    if (State.InputDeviceId != input.Id) return;
+                    SetSelectedInputVolume(input.Id, v / 100);
+                    CancelCalibration();
+                    InvalidateDiscord();
+                }, "%", 1));
+                systemMute = ButtonSwitch("麦克风静音", systemVolume.Muted, value =>
+                {
+                    if (State.InputDeviceId != input.Id) return;
+                    SetSelectedInputMute(input.Id, value);
+                    CancelCalibration();
+                    InvalidateDiscord();
+                });
             }
             catch (Exception ex) { volume.Children.Add(T("系统音量不可调", 12, Amber)); volume.ToolTip = ex.Message; }
         }
@@ -53,18 +65,34 @@ public partial class MainWindow
         if (systemMute != null)
             advanced.Children.Add(Card(Loc.T("系统麦克风", "System microphone"), null,
                 systemMute, T(Loc.T("直接控制所选 Windows 麦克风，影响其他应用。发送静音只控制本软件的虚拟线路。", "Controls the selected Windows microphone for all apps. Mute send controls only this app's virtual cable."), 12, Muted)));
-        advanced.Children.Add(Card(Loc.T("增益校准", "Gain calibration"), null, CalibrationControls()));
+        advanced.Children.Add(Card(Loc.T("调音引导", "Tuning guide"), null, TuningGuideControls()));
         advanced.Children.Add(Card(Loc.T("录音与比较", "Recording and comparison"), null, RecordingControls()));
         advanced.Children.Add(Buttons(B("另存预设", SavePreset)));
         Add(new Expander { Header = Loc.T("高级功能", "Advanced"), Foreground = Ink, Content = advanced, Margin = new(0, 4, 0, 8) });
     }
 
-    private void AdaptiveCards(params Border[] cards)
+    private void AdaptiveCards(Border left, Border right)
     {
-        var panel = new WrapPanel { Margin = new(0, 0, -14, 0) };
-        foreach (var card in cards) { card.Margin = new(0, 0, 14, 14); panel.Children.Add(card); }
-        void Resize() { var w = Math.Max(100, panel.ActualWidth); foreach (var c in cards) c.Width = w >= 730 ? (w - 28) / 2 : w - 14; }
-        panel.SizeChanged += (_, _) => Resize(); Add(panel);
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
+        var secondColumn = new ColumnDefinition { Width = new(0) };
+        grid.ColumnDefinitions.Add(secondColumn);
+        grid.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        Grid.SetRow(right, 1);
+        grid.Children.Add(left);
+        grid.Children.Add(right);
+        grid.SizeChanged += (_, size) =>
+        {
+            if (!size.WidthChanged) return;
+            var twoColumns = size.NewSize.Width >= 730;
+            secondColumn.Width = twoColumns ? new(1, GridUnitType.Star) : new(0);
+            Grid.SetRow(right, twoColumns ? 0 : 1);
+            Grid.SetColumn(right, twoColumns ? 1 : 0);
+            left.Margin = new(0, 0, twoColumns ? 7 : 0, 14);
+            right.Margin = new(twoColumns ? 7 : 0, 0, 0, 14);
+        };
+        Add(grid);
     }
 
     private StackPanel MeterBlock(bool output)
@@ -112,44 +140,6 @@ public partial class MainWindow
     {
         foreach (var label in liveLabels) label.Text = engine.IsRunning ? engine.IsRecording ? Loc.T("正在录音", "Recording") : Loc.T("运行中", "Running") : Loc.T("未运行", "Not running");
     }
-    private UIElement CalibrationControls()
-    {
-        var p = new StackPanel { Margin = new(0, 10, 0, 10) };
-        p.Children.Add(Buttons(B("校准 · 6 秒", BeginCalibration), B("采用建议", () =>
-        {
-            if (suggestedGain is null) { Notice("请先正常讲话校准。噪声或静音不足以确定合适的增益。"); return; }
-            vm.Change(s => s.InputGainDb = suggestedGain.Value); ShowPage(currentPage); Notice(engine.IsRunning ? "已采用建议增益，声音实时更新。" : "已采用建议增益，下次开始时使用。");
-        })));
-        if (suggestedGain is { } suggested) p.Children.Add(T(Loc.F("建议：{0:+0.0;-0.0;0} dB", "Suggestion: {0:+0.0;-0.0;0} dB", suggested), 13, Accent));
-        return p;
-    }
-    private void BeginCalibration()
-    {
-        if (calibrating) return;
-        if (!LocalMode) { Notice("系统 APO 路径可能已经包含增益，无法把采集值当作原声。请切换到本地 DSP，并移除重复 APO 后再校准。"); return; }
-        stopAfterCalibration = !engine.IsRunning;
-        if (!engine.IsRunning) StartAudio();
-        if (!engine.IsRunning) return;
-        calibrationPeaks.Clear(); calibrating = true; suggestedGain = null;
-        calibrationTimer.Start(); Notice("正在校准，请用日常音量连续讲话 6 秒。此过程不保存录音。");
-    }
-    private void CancelCalibration()
-    {
-        calibrating = false; calibrationTimer.Stop(); calibrationPeaks.Clear(); suggestedGain = null;
-    }
-    private void CompleteCalibration()
-    {
-        calibrationTimer.Stop(); calibrating = false;
-        if (stopAfterCalibration) StopAudio();
-        if (calibrationPeaks.Count < 15) { Notice("有效讲话电平不足，未生成增益建议。请确认设备、距离并重新讲话测试。"); return; }
-        calibrationPeaks.Sort();
-        var speechPeak = calibrationPeaks[(int)Math.Floor((calibrationPeaks.Count - 1) * .9)];
-        suggestedGain = Math.Round(Math.Clamp(-12 - speechPeak, -24, 30), 1);
-        ShowPage(currentPage);
-        Notice(Loc.F("测得较响讲话峰值约 {0:0.0} dBFS；建议输入增益 {1:+0.0;-0.0;0} dB。点击“采用建议”使用，真实听感仍需试听。",
-            "Loud speech peaked around {0:0.0} dBFS; suggested input gain {1:+0.0;-0.0;0} dB. Click “Use suggestion”; still verify by listening.",
-            speechPeak, suggestedGain));
-    }
     private UIElement RecordingControls()
     {
         var p = new StackPanel();
@@ -163,15 +153,19 @@ public partial class MainWindow
             if (engine.LastRecordingPath is null) { Notice("尚无本次会话的试听录音。"); return; }
             if (State.PlaybackOutputId is null || !headphones) { Notice("请在连接页明确选择物理输出，并确认使用耳机，再回放。"); return; }
             CancelDeviceRecovery("playback_started");
+            StopLoopTuningPreview();
             engine.PlayRecording(engine.LastRecordingPath, State.PlaybackOutputId);
-        }), B("停止回放", engine.StopPlayback)));
-        p.Children.Add(Buttons(B("录制 A/B 源 · 30 秒", () =>
+        }), B("停止回放", () =>
         {
-            if (!engine.IsRunning) { Notice("先开始处理或测量。"); return; }
-            var d = new Microsoft.Win32.SaveFileDialog { Title = Loc.T("保存 DSP 前的比较源", "Save the pre-DSP comparison source"), Filter = "WAV|*.wav", FileName = "MicStudio-source-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".wav" };
-            if (d.ShowDialog(this) != true) return;
-            comparison = null; engine.StartRecording(d.FileName, 30, recordSource: true); Notice("正在录制比较源，最长 30 秒。");
-        }), AsyncB("生成同源 A/B", async () =>
+            CancelLoopTuningPreparation();
+            engine.StopPlayback();
+            UpdateLoopTuningChrome();
+        })));
+        var recordSource = B("录制 A/B 源 · 30 秒", RecordTuningSource);
+        recordSource.ToolTip = Loc.T("确认保存后录制。若处理已停止，麦克风会打开并采集试听素材。", "Recording begins after you confirm the file. If processing is stopped, the microphone opens to capture the sample.");
+        p.Children.Add(Buttons(recordSource));
+        p.Children.Add(LoopTuningControls());
+        p.Children.Add(Buttons(AsyncB("生成同源 A/B", async () =>
         {
             if (engine.IsRunning) { Notice("先停止采集。"); return; }
             var source = engine.LastRecordingPath;
@@ -185,11 +179,83 @@ public partial class MainWindow
         }), B("A · 参考", () => PlayComparison(false)), B("B · 效果", () => PlayComparison(true))));
         return p;
     }
+
+    private void RecordTuningSource()
+    {
+        if (UiSmoke) return;
+        if (!LocalMode)
+        {
+            Notice(Loc.T("请切换到本地处理，再录制 A/B 源。", "Switch to local processing before recording an A/B source."));
+            return;
+        }
+        if (SelectedInput is not { IsActive: true })
+        {
+            Notice(Loc.T("请选择已连接的麦克风。", "Select a connected microphone."));
+            return;
+        }
+        if (calibrating || engine.IsRecording || engine.IsPlaying || loopPreparation != null)
+        {
+            Notice(Loc.T("请先完成当前测量、录音或试听。", "Finish the current measurement, recording or preview first."));
+            return;
+        }
+        var originalSession = engine.SessionId;
+        var inputId = State.InputDeviceId;
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = engine.IsRunning
+                ? Loc.T("保存 DSP 前的比较源", "Save the pre-DSP comparison source")
+                : Loc.T("确认保存后打开麦克风并录音", "Confirm the file to open the microphone and record"),
+            Filter = Loc.T("WAV 音频|*.wav", "WAV audio|*.wav"),
+            OverwritePrompt = false,
+            FileName = "MicStudio-source-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".wav"
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        if (closed || !LocalMode || originalSession != engine.SessionId || inputId != State.InputDeviceId ||
+            calibrating || engine.IsRecording || engine.IsPlaying || loopPreparation != null)
+        {
+            if (!closed) Notice(Loc.T("音频会话已改变，请重新开始录制。", "The audio session changed. Start the recording again."));
+            return;
+        }
+        var path = Path.GetFullPath(dialog.FileName);
+        if (File.Exists(path))
+        {
+            Notice(Loc.T("请选择新的文件名。", "Choose a new file name."));
+            return;
+        }
+
+        var ownsCapture = !engine.IsRunning;
+        if (ownsCapture) StartAudio(captureOnly: true);
+        if (!engine.IsRunning) return;
+        var session = engine.SessionId;
+        try
+        {
+            engine.StartRecording(path, 30, recordSource: true);
+            tuningSourceCapture = ownsCapture ? (path, session) : null;
+            comparison = null;
+            Notice(Loc.T("正在录制 A/B 源，最长 30 秒。", "Recording an A/B source for up to 30 seconds."));
+            UpdateLiveLabels();
+        }
+        catch
+        {
+            if (ownsCapture && engine.IsRunning && engine.SessionId == session) StopAudio();
+            throw;
+        }
+    }
+
+    private void CompleteTuningSourceCapture(RecordingResult recording)
+    {
+        if (tuningSourceCapture is not { } capture || recording.SessionId != capture.SessionId ||
+            !string.Equals(recording.Path, capture.Path, StringComparison.OrdinalIgnoreCase)) return;
+        tuningSourceCapture = null;
+        if (engine.IsRunning && engine.SessionId == capture.SessionId) StopAudio();
+    }
+
     private void PlayComparison(bool processed)
     {
         if (comparison is null) { Notice("先生成同源 A/B。"); return; }
         if (State.PlaybackOutputId is null || !headphones) { Notice("先在设备页选择并确认耳机。"); return; }
         CancelDeviceRecovery("playback_started");
+        StopLoopTuningPreview();
         engine.PlayRecording(processed ? comparison.ProcessedPath : comparison.ReferencePath, State.PlaybackOutputId);
     }
 }
