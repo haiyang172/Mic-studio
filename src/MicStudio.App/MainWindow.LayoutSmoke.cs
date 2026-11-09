@@ -41,7 +41,7 @@ public partial class MainWindow
                 var reachable = PageScroll.ExtentHeight <= PageScroll.ViewportHeight + 3 || Math.Abs(PageScroll.VerticalOffset - PageScroll.ScrollableHeight) < 3;
                 PageScroll.ScrollToTop(); await Dispatcher.InvokeAsync(() => UpdateLayout(), DispatcherPriority.Render);
                 results.Add(new { size.W, size.H, Page = PageNames[page], Advanced = details, PageContent.ActualWidth, PageScroll.ViewportWidth, PageScroll.ExtentHeight, PageScroll.ViewportHeight, ScrollReachable = reachable, RightOverflow = rightOverflow, Buttons = buttons });
-                if (!reachable || rightOverflow) throw new InvalidOperationException($"窗口内容无法完整访问：{PageNames[page]} {size.W}x{size.H} advanced={details}; width={PageContent.ActualWidth:0.0}, viewport={PageScroll.ViewportWidth:0.0}; scroll={reachable}");
+                if (!reachable || rightOverflow) throw new InvalidOperationException($"窗口内容无法完整访问：{PageNames[page]} {size.W}x{size.H} advanced={details}; width={PageContent.ActualWidth:0.0}, viewport={PageScroll.ViewportWidth:0.0}; extent={PageScroll.ExtentHeight:0.0}, height={PageScroll.ViewportHeight:0.0}, offset={PageScroll.VerticalOffset:0.0}, scrollable={PageScroll.ScrollableHeight:0.0}; scroll={reachable}");
                 var visual = (Visual)Content;
                 var bitmap = new RenderTargetBitmap((int)((FrameworkElement)Content).ActualWidth, (int)((FrameworkElement)Content).ActualHeight, 96, 96, PixelFormats.Pbgra32); bitmap.Render(visual);
                 var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
@@ -133,6 +133,10 @@ public partial class MainWindow
         Inspect(ModeLabel.Text, "mode label");
         Inspect(EffectLabel.Text, "effect label");
         Inspect(BypassButton.Content as string, "effects switch");
+        Inspect(LoopTuningStatus.Text, "loop tuning status");
+        Inspect(LoopCompareButton.Content as string, "loop tuning A/B");
+        Inspect(LoopMatchButton.Content as string, "loop tuning volume matching");
+        Inspect(LoopStopButton.Content as string, "loop tuning stop");
         Inspect(CaptureFooter.Text, "capture footer");
         Inspect(ConfigFooter.Text, "config footer");
         foreach (System.Windows.Controls.Button button in Navigation.Children)
@@ -337,6 +341,8 @@ public partial class MainWindow
         RunBackgroundControlChecks(Check);
         RunDeviceRecoveryChecks(Check);
         RunAutomaticInputChecks(Check);
+        RunTuningGuideChecks(Check);
+        RunVoiceTuningChecks(Check);
         State.LaunchAtLogin = true; State.AutoStartProcessing = true; State.Language = UiText.Chinese; vm.Save();
         var preferenceReload = new StudioViewModel();
         Check(preferenceReload.State.LaunchAtLogin && preferenceReload.State.AutoStartProcessing, "Startup preferences persist separately from audio parameters");

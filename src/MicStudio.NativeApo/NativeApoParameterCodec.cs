@@ -76,6 +76,7 @@ public static class NativeApoParameterCodec
     {
         var names = new List<string>();
         if (settings.Denoise.Enabled) names.Add("Noise reduction");
+        if (settings.DeEsser.StrengthPercent > 0) names.Add("De-esser");
         if (settings.Compressor.Enabled) names.Add("Compressor");
         if (settings.Gate.Enabled) names.Add("Expander");
         if (settings.Creative.SaturationEnabled) names.Add("Saturation");

@@ -9,7 +9,7 @@
    </DockPanel>
   </Border>
   <Grid Grid.Column="1">
-   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
    <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="24,15,16,7">
     <WrapPanel VerticalAlignment="Center">
      <StackPanel Margin="0,0,12,8"><TextBlock x:Name="InputDeviceLabel" Text="输入设备" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,0,0,5"/><ComboBox x:Name="InputPicker" Width="310" DisplayMemberPath="DisplayName" ToolTip="按端点 ID 保存。"/></StackPanel>
@@ -18,8 +18,16 @@
     </WrapPanel>
    </Border>
    <Border Grid.Row="1" Background="{DynamicResource NoticeBg}" x:Name="NoticeBar" Visibility="Collapsed" Padding="24,10"><DockPanel><Button DockPanel.Dock="Right" Content="×" Padding="8,0" Margin="8,0,0,0" Click="DismissNotice"/><TextBlock x:Name="NoticeText" Foreground="{DynamicResource Accent}"/></DockPanel></Border>
-   <ScrollViewer Grid.Row="2" x:Name="PageScroll" Padding="28,24,24,24"><StackPanel x:Name="PageContent"/></ScrollViewer>
-   <Border Grid.Row="3" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="22,10" Background="{DynamicResource SidebarBg}"><WrapPanel><TextBlock x:Name="CaptureFooter" Text="已停止" Foreground="{DynamicResource SidebarInk}" FontSize="12" Margin="0,0,22,2"/><TextBlock x:Name="ConfigFooter" Text="设置已就绪" Foreground="{DynamicResource SidebarInk}" FontSize="12" Margin="0,0,22,2"/><TextBlock x:Name="DiscordFooter" Visibility="Collapsed"/></WrapPanel></Border>
+   <Border Grid.Row="2" x:Name="LoopTuningBar" Visibility="Collapsed" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Background="{DynamicResource Panel}" Padding="24,6,16,6">
+    <WrapPanel>
+     <TextBlock x:Name="LoopTuningStatus" Foreground="{DynamicResource Accent}" VerticalAlignment="Center" Margin="0,4,12,4" TextWrapping="Wrap"/>
+     <Button x:Name="LoopCompareButton" Padding="10,5" Margin="0,2,8,2"/>
+     <Button x:Name="LoopMatchButton" Padding="10,5" Margin="0,2,8,2"/>
+     <Button x:Name="LoopStopButton" Padding="10,5" Margin="0,2,0,2"/>
+    </WrapPanel>
+   </Border>
+   <ScrollViewer Grid.Row="3" x:Name="PageScroll" Padding="28,24,24,24"><StackPanel x:Name="PageContent"/></ScrollViewer>
+   <Border Grid.Row="4" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="22,10" Background="{DynamicResource SidebarBg}"><WrapPanel><TextBlock x:Name="CaptureFooter" Text="已停止" Foreground="{DynamicResource SidebarInk}" FontSize="12" Margin="0,0,22,2"/><TextBlock x:Name="ConfigFooter" Text="设置已就绪" Foreground="{DynamicResource SidebarInk}" FontSize="12" Margin="0,0,22,2"/><TextBlock x:Name="DiscordFooter" Visibility="Collapsed"/></WrapPanel></Border>
   </Grid>
  </Grid>
 </Window>

@@ -66,6 +66,7 @@ public sealed class DspProcessor
             }
             if (!config.Bypass)
             {
+                if (s.DeEsser.IsActive) framePeak = s.DeEsser.Process(s.Frame, framePeak);
                 double detectorCoeff = framePeak > s.Detector ? s.CompAttack : s.CompRelease;
                 s.Detector = detectorCoeff * s.Detector + (1 - detectorCoeff) * framePeak;
                 double detectorDb = Math.Max(-240, LinearToDb(s.Detector));
@@ -169,6 +170,7 @@ public sealed class DspProcessor
         public Biquad[][] Filters { get; private set; }
         public Biquad[][]? PreviousFilters;
         public SpectralDenoiser[] Denoisers { get; private set; } = [];
+        public BandDeEsser DeEsser { get; private set; } = null!;
         public PitchShifter[] PitchShifters { get; private set; } = [];
         public double[] PhoneHigh { get; } = new double[16];
         public double[] PhoneLow { get; } = new double[16];
@@ -195,6 +197,7 @@ public sealed class DspProcessor
             if (initializeHistory)
             {
                 Denoisers = Enumerable.Range(0, channels).Select(_ => new SpectralDenoiser()).ToArray();
+                DeEsser = new BandDeEsser(sampleRate, channels, settings.DeEsser, settings.Bypass);
                 // A fixed one-second ring supports every permitted delay without copying/allocating on parameter updates.
                 Delay = Enumerable.Range(0, channels).Select(_ => new double[sampleRate]).ToArray();
                 Reverb = Enumerable.Range(0, channels).Select(_ => times.Select(t => new double[Math.Max(1, (int)(sampleRate * t))]).ToArray()).ToArray();
@@ -220,6 +223,8 @@ public sealed class DspProcessor
             GateGain = previous.GateGain; GateHold = Math.Min(previous.GateHold, GateHoldFrames);
             LimiterGain = previous.LimiterGain; CompressorGain = previous.CompressorGain; RobotPhase = previous.RobotPhase;
             Denoisers = previous.Denoisers;
+            DeEsser = previous.DeEsser;
+            DeEsser.Configure(Settings.DeEsser, Settings.Bypass);
             if (Settings.Denoise.Enabled && !previous.Settings.Denoise.Enabled)
                 foreach (var denoiser in Denoisers) denoiser.Reset();
             if (Settings.Creative.PitchSemitones != 0)

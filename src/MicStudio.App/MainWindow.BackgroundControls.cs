@@ -55,6 +55,7 @@ public partial class MainWindow
             if (args.Mode != PowerModes.StatusChange)
             {
                 CancelDeviceRecovery("power_changed");
+                Safe(StopLoopTuningPreview);
                 if (engine.IsRunning && engine.SessionId == automaticRecoverySession) StopLocalAudio(false);
             }
             if (args.Mode == PowerModes.Suspend) volumeLock?.Disable();
@@ -68,6 +69,7 @@ public partial class MainWindow
         {
             if (closed) return;
             ResetPttForSafety(); CancelDeviceRecovery("session_changed");
+            Safe(StopLoopTuningPreview);
             if (engine.IsRunning && engine.SessionId == automaticRecoverySession) StopLocalAudio(false);
         });
     }
